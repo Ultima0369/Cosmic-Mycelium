@@ -6,6 +6,7 @@ Kubernetes-compatible health check endpoints.
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass
 from typing import Optional
 from aiohttp import web
@@ -64,11 +65,13 @@ class HealthChecker:
 
     async def _handle_combined(self, request: web.Request) -> web.Response:
         """Combined health endpoint."""
-        live = await self._handle_liveness(request)
-        ready = await self._handle_readiness(request)
-        status = 200 if ready.status == 200 else 503
+        live_resp = await self._handle_liveness(request)
+        ready_resp = await self._handle_readiness(request)
+        status = 200 if ready_resp.status == 200 else 503
+        live_body = json.loads(live_resp.body.decode())
+        ready_body = json.loads(ready_resp.body.decode())
         return web.json_response({
             "status": "ok" if status == 200 else "degraded",
-            "liveness": live.body,
-            "readiness": ready.body,
+            "liveness": live_body,
+            "readiness": ready_body,
         }, status=status)

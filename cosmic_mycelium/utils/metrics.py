@@ -84,7 +84,11 @@ class MetricsServer:
     async def _handle_metrics(self, request: web.Request) -> web.Response:
         """Handle /metrics request."""
         metrics = generate_latest()
-        return web.Response(body=metrics, content_type=CONTENT_TYPE_LATEST)
+        return web.Response(
+            body=metrics,
+            content_type="text/plain",
+            charset="utf-8",
+        )
 
     async def _handle_health(self, request: web.Request) -> web.Response:
         """Handle /health request."""

@@ -61,9 +61,10 @@ class Consensus:
 
     def is_symbiotic(self, node_a: str, node_b: str) -> bool:
         """Check if two nodes have a symbiotic (1+1>2) relationship."""
-        # Simplified: check if they've agreed on paths together
-        shared_path = f"{node_a}<->{node_b}"
-        return shared_path in self.agreed_paths
+        # Check both orderings — symbiosis is bidirectional
+        path_ab = f"{node_a}<->{node_b}"
+        path_ba = f"{node_b}<->{node_a}"
+        return path_ab in self.agreed_paths or path_ba in self.agreed_paths
 
     def record_symbiosis(self, node_a: str, node_b: str) -> None:
         """Record a new symbiotic relationship."""

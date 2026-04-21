@@ -42,15 +42,15 @@ class NodeManager:
         self.consensus = Consensus()
         self.running = False
 
-    async def start(self) -> None:
+    def start(self) -> None:
         """Start node manager."""
         self.running = True
 
-    async def stop(self) -> None:
+    def stop(self) -> None:
         """Stop node manager."""
         self.running = False
 
-    async def spawn_node(self, node_id: str) -> bool:
+    def spawn_node(self, node_id: str) -> bool:
         """Spawn a new infant node."""
         if len(self.nodes) >= self.max_nodes:
             return False
