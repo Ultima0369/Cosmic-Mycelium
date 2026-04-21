@@ -1,0 +1,15 @@
+# Cosmic Mycelium — Grafana Dashboard Provisioning
+# Auto-provisions dashboards from /var/lib/grafana/dashboards
+
+apiVersion: 1
+
+providers:
+  - name: 'Cosmic Mycelium'
+    orgId: 1
+    folder: ''
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: true

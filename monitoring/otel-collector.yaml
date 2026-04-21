@@ -1,0 +1,159 @@
+# OpenTelemetry Collector Configuration for Cosmic Mycelium
+# Collects traces, metrics, and logs from all infant nodes
+
+extensions:
+  health_check:
+    endpoint: "0.0.0.0:13133"
+  pprof:
+    endpoint: "0.0.0.0:1777"
+
+receivers:
+  # ============================================================================
+  # OTLP receiver — accepts traces/metrics/logs from infant nodes
+  # ============================================================================
+  otlp:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4317"
+      http:
+        endpoint: "0.0.0.0:4318"
+
+  # ============================================================================
+  # Prometheus receiver — scrapes infant metrics
+  # ============================================================================
+  prometheus:
+    config:
+      global:
+        scrape_interval: 15s
+      scrape_configs:
+        - job_name: 'cosmic-infant'
+          static_configs:
+            - targets: ['infant:8000']
+              labels:
+                service: 'infant'
+                cluster: 'cosmic-mycelium'
+
+  # ============================================================================
+  # Jaeger receiver — accepts traces from external systems
+  # ============================================================================
+  jaeger:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:14250"
+      thrift_http:
+        endpoint: "0.0.0.0:14268"
+
+processors:
+  # ============================================================================
+  # Batch processor — groups data before exporting
+  # ============================================================================
+  batch:
+    timeout: 10s
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+
+  # ============================================================================
+  # Memory limiter — prevents OOM
+  # ============================================================================
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+  # ============================================================================
+  # Resource detector — adds host/container metadata
+  # ============================================================================
+  resource:
+    attributes:
+      - key: service.name
+        value: cosmic-mycelium
+        action: upsert
+      - key: deployment.environment
+        value: ${ENVIRONMENT:-development}
+        action: upsert
+      - key: cloud.provider
+        value: "on-premise"
+        action: upsert
+
+  # ============================================================================
+  # Span processor — filters sensitive data
+  # ============================================================================
+  span:
+    name: "privacy-filter"
+    strategies:
+      - attribute:
+          keys: ["user.password", "user.token", "api.secret"]
+          action: delete
+
+exporters:
+  # ============================================================================
+  # Jaeger exporter — sends traces to Jaeger
+  # ============================================================================
+  jaeger:
+    endpoint: "jaeger:14250"
+    tls:
+      insecure: true
+
+  # ============================================================================
+  # Prometheus exporter — sends metrics to Prometheus
+  # ============================================================================
+  prometheus:
+    endpoint: "0.0.0.0:8888"
+    namespace: "cosmic_mycelium"
+    const_labels:
+      cluster: "cosmic-mycelium"
+
+  # ============================================================================
+  # Logging exporter — prints to stdout (debug)
+  # ============================================================================
+  logging:
+    loglevel: info
+    sampling_initial: 5
+    sampling_thereafter: 200
+
+  # ============================================================================
+  # OTLP exporter — forwards to external collector (optional)
+  # ============================================================================
+  # otlp:
+  #   endpoint: "collector.example.com:4317"
+  #   tls:
+  #     insecure: false
+  #     cert_file: "/etc/ssl/cert.pem"
+  #     key_file: "/etc/ssl/key.pem"
+
+service:
+  extensions: [health_check, pprof]
+  pipelines:
+    # ========================================================================
+    # Traces pipeline
+    # ========================================================================
+    traces:
+      receivers: [otlp, jaeger]
+      processors: [memory_limiter, resource, span, batch]
+      exporters: [jaeger, logging]
+
+    # ========================================================================
+    # Metrics pipeline
+    # ========================================================================
+    metrics:
+      receivers: [otlp, prometheus]
+      processors: [memory_limiter, resource, batch]
+      exporters: [prometheus, logging]
+
+    # ========================================================================
+    # Logs pipeline
+    # ========================================================================
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [logging]
+
+  # Telemetry configuration
+  telemetry:
+    logs:
+      level: "info"
+      encoding: "json"
+      output_paths: ["stdout"]
+    metrics:
+      level: "detailed"
+      address: "0.0.0.0:8888"

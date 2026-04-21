@@ -1,0 +1,470 @@
+name: Cosmic Mycelium CI Pipeline
+
+on:
+  push:
+    branches: [main, develop, 'feature/**']
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Weekly dependency audit (Mondays at 9am UTC)
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  PYTHON_VERSION: '3.13'
+  POETRY_VERSION: '1.8.3'
+
+jobs:
+  # ============================================================================
+  # Job 1: Lint & Format — ensures code quality before tests run
+  # ============================================================================
+  lint-format:
+    name: '🔍 Lint & Format'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Needed for pre-commit diff
+
+      - name: Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: 'pyproject.toml'
+
+      - name: Install development dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run pre-commit (all hooks except heavy ones)
+        run: |
+          # Run only fast hooks; skip mypy, pytest in lint stage
+          pre-commit run \
+            --all-files \
+            --hook-stage manual \
+            trailing-whitespace \
+            end-of-file-fixer \
+            check-yaml \
+            check-json \
+            check-toml \
+            check-added-large-files \
+            detect-private-key \
+            debug-statements \
+            black \
+            isort \
+            ruff-lint \
+            codespell
+
+      - name: Type check with mypy (strict)
+        if: always()
+        run: |
+          mypy --config-file=pyproject.toml cosmic_mycelium/ || true
+          # Upload mypy report as artifact
+          echo "Mypy check complete"
+
+      - name: Upload linting reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-reports
+          path: |
+            .ruff_cache/
+            .mypy_cache/
+          retention-days: 3
+
+  # ============================================================================
+  # Job 2: Unit Tests — fast feedback loop
+  # ============================================================================
+  test-unit:
+    name: '🧪 Unit Tests'
+    needs: lint-format
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.13']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+          cache-dependency-path: 'pyproject.toml'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Cache pytest
+        uses: actions/cache@v4
+        with:
+          path: |
+            .pytest_cache
+            .hypothesis
+          key: pytest-cache-${{ hashFiles('**/test_*.py') }}
+          restore-keys: |
+            pytest-cache-
+
+      - name: Run unit tests (fast)
+        run: |
+          pytest tests/unit/ \
+            -m unit \
+            --tb=short \
+            --cov=cosmic_mycelium \
+            --cov-report=term-missing:skip-covered \
+            --cov-report=xml:coverage-unit.xml \
+            --junitxml=reports/unit-tests.xml \
+            --durations=0
+
+      - name: Upload unit test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          path: |
+            reports/
+            coverage-unit.xml
+          retention-days: 7
+
+  # ============================================================================
+  # Job 3: Integration Tests — multi-component testing
+  # ============================================================================
+  test-integration:
+    name: '🔗 Integration Tests'
+    needs: test-unit
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      kafka:
+        image: confluentinc/cp-kafka:7.6.0
+        ports: ['9092:9092']
+        env:
+          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+          KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+          KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+          KAFKA_LOG_RETENTION_HOURS: 1
+          KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+        options: >-
+          --health-cmd "kafka-topics --bootstrap-server localhost:9092 --list"
+          --health-interval 20s
+          --health-timeout 10s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: 'pyproject.toml'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Wait for services
+        run: |
+          # Wait for Redis
+          for i in $(seq 1 30); do
+            if redis-cli -h localhost ping | grep -q PONG; then
+              echo "Redis is ready"
+              break
+            fi
+            echo "Waiting for Redis... ($i/30)"
+            sleep 1
+          done
+          # Wait for Kafka
+          for i in $(seq 1 60); do
+            if kafka-topics --bootstrap-server localhost:9092 --list 2>/dev/null; then
+              echo "Kafka is ready"
+              break
+            fi
+            echo "Waiting for Kafka... ($i/60)"
+            sleep 1
+          done
+
+      - name: Run integration tests
+        run: |
+          pytest tests/integration/ \
+            -m integration \
+            --tb=short \
+            --cov=cosmic_mycelium \
+            --cov-report=term-missing:skip-covered \
+            --cov-report=xml:coverage-integration.xml \
+            --junitxml=reports/integration-tests.xml \
+            --durations=10
+
+      - name: Upload integration test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-reports
+          path: |
+            reports/
+            coverage-integration.xml
+          retention-days: 7
+
+  # ============================================================================
+  # Job 4: Physics Validation — ensures "Physical Anchor" integrity
+  # ============================================================================
+  test-physics:
+    name: '⚛️ Physics Validation'
+    needs: test-unit
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: 'pyproject.toml'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run physics benchmark tests
+        run: |
+          # Run physics validation suite
+          pytest tests/physics/ \
+            -m physics \
+            --tb=short \
+            --cov=cosmic_mycelium \
+            --cov-report=term-missing:skip-covered \
+            --cov-report=xml:coverage-physics.xml \
+            --junitxml=reports/physics-tests.xml \
+            --durations=10 \
+            --benchmark-enable
+
+      - name: Generate physics validation report
+        run: |
+          python -m cosmic_mycelium.tests.physics.benchmark_physics \
+            --output reports/physics-validation.json
+
+      - name: Upload physics reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: physics-reports
+          path: |
+            reports/physics-validation.json
+            reports/physics-tests.xml
+            coverage-physics.xml
+          retention-days: 30
+
+  # ============================================================================
+  # Job 5: Code Coverage — aggregate and upload
+  # ============================================================================
+  coverage:
+    name: '📊 Coverage Report'
+    needs: [test-unit, test-integration, test-physics]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install coverage tools
+        run: |
+          pip install coverage[toml] coverage-merge
+
+      - name: Download coverage reports
+        uses: actions/download-artifact@v4
+        with:
+          path: ./coverage-reports/
+          pattern: 'coverage-*.xml'
+          merge-multiple: true
+
+      - name: Combine coverage reports
+        run: |
+          coverage combine coverage-reports/coverage-*.xml
+          coverage xml -o coverage-merged.xml
+          coverage html -d htmlcov
+          coverage report --show-missing --fail-under=80
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./coverage-merged.xml
+          flags: unittests,integration,physics
+          name: cosmic-mycelium
+          fail_ci_if_error: false
+          verbose: true
+
+      - name: Upload HTML coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: html-coverage-report
+          path: htmlcov/
+          retention-days: 7
+
+  # ============================================================================
+  # Job 6: Security Audit — dependency vulnerability scanning
+  # ============================================================================
+  security-audit:
+    name: '🔐 Security Audit'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write  # For SARIF upload
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Run pip-audit
+        continue-on-error: true
+        run: |
+          pip-audit --desc --format json -o pip-audit-report.json || true
+
+      - name: Upload pip-audit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-audit-report
+          path: pip-audit-report.json
+          retention-days: 30
+
+      - name: Check for known vulnerabilities (fail on high/critical)
+        run: |
+          if [ -f pip-audit-report.json ]; then
+            HIGH_CRIT=$(jq '[.vulns[] | select(.id != null) | .id] | length' pip-audit-report.json)
+            if [ "$HIGH_CRIT" -gt 0 ]; then
+              echo "❌ Found $HIGH_CRIT high/critical vulnerabilities!"
+              jq '.vulns[] | "\(.id): \(.fix_versions // "no fix available")"' pip-audit-report.json
+              exit 1
+            fi
+            echo "✅ No high/critical vulnerabilities found"
+          fi
+
+  # ============================================================================
+  # Job 7: Docker Build & Push (only on main tag)
+  # ============================================================================
+  docker:
+    name: '🐳 Docker Build'
+    needs: [coverage, security-audit]
+    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/cosmic-mycelium
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+
+      - name: Generate SBOM
+        run: |
+          docker run --rm \
+            -v $PWD:/work \
+            -w /work \
+            ghcr.io/anchore/sbom-action:v1.0 \
+            --format spdx-json \
+            --output sbom.spdx.json \
+            cosmic-mycelium:${{ github.sha }}
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.spdx.json
+          retention-days: 90
+
+  # ============================================================================
+  # Job 8: Summary & Notifications
+  # ============================================================================
+  summary:
+    name: '📋 Pipeline Summary'
+    needs: [lint-format, test-unit, test-integration, test-physics, coverage, security-audit]
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check pipeline status
+        run: |
+          echo "### 🌀 Cosmic Mycelium CI Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status | Duration |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|----------|" >> $GITHUB_STEP_SUMMARY
+
+          # Fetch job statuses from GitHub API
+          for job_name in "lint-format" "test-unit" "test-integration" "test-physics" "coverage" "security-audit"; do
+            status=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs \
+              -q ".jobs[] | select(.name==\"$job_name\") | .conclusion")
+            echo "| $job_name | $status | - |" >> $GITHUB_STEP_SUMMARY
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Coverage Report:** [View HTML](https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/coverage/)" >> $GITHUB_STEP_SUMMARY
+          echo "**Physics Validation:** [View Report](https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/physics/)" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload final summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-summary
+          path: ${{ github.step_summary }}
+          retention-days: 30

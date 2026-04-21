@@ -1,0 +1,80 @@
+# Cosmic Mycelium — Development environment (single infant node)
+# Usage: docker-compose -f docker-compose.dev.yml up
+
+services:
+  mycelium-infant:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: cm-infant-dev
+    image: cosmic-mycelium:dev
+    command: >
+      bash -c "
+        # Wait for Redis
+        while ! redis-cli -h redis ping > /dev/null 2>&1; do
+          echo 'Waiting for Redis...'
+          sleep 1
+        done;
+        echo 'Redis ready. Starting infant...';
+        python -m cosmic_mycelium.infant.main
+      "
+    volumes:
+      # Mount source code for live reload (development only)
+      - ./cosmic_mycelium:/app/cosmic_mycelium:ro
+      - ./scripts:/app/scripts:ro
+      # Persistent logs & checkpoints
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./checkpoints:/app/checkpoints
+    networks:
+      - mycelium-network
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      # Environment configuration
+      - PYTHONUNBUFFERED=1
+      - COSMIC_ENV=development
+      - COSMIC_LOG_LEVEL=DEBUG
+      - REDIS_URL=redis://redis:6379/0
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - INFANT_ID=dev-infant-001
+      - INFANT_ENERGY_MAX=100.0
+      - INFANT_BREATH_CONTRACT=0.055
+      - INFANT_BREATH_DIFFUSE=0.005
+      - INFANT_SUSPEND_DURATION=5.0
+      # HIC parameters
+      - HIC_SELF_PRESERVATION=1.0
+      - HIC_MUTUAL_BENEFIT=1.0
+      - HIC_CURIOSITY=0.7
+      - HIC_CAUTION=0.5
+      # Physics anchor thresholds
+      - PHYSICS_ENERGY_DRIFT_MAX=0.001
+      - PHYSICS_ADAPTATION_THRESHOLD=0.001
+    healthcheck:
+      test: ["CMD", "python", "-c", "
+import time
+from cosmic_mycelium.infant.hic import HIC
+hic = HIC()
+assert hic.energy > 0, 'HIC energy depleted'
+print('Infant health check passed')
+      "]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    # Resource limits (dev machine friendly)
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+networks:
+  mycelium-network:
+    external: true

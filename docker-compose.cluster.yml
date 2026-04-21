@@ -1,0 +1,187 @@
+# Cosmic Mycelium — Cluster deployment (multiple infant nodes)
+# Usage: docker-compose -f docker-compose.cluster.yml up --scale infant=3
+
+services:
+  # ============================================================================
+  # Cluster node manager
+  # ============================================================================
+  node-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: cm-node-manager
+    image: cosmic-mycelium:cluster
+    command: python -m cosmic_mycelium.cluster.node_manager
+    volumes:
+      - ./cosmic_mycelium:/app/cosmic_mycelium:ro
+      - ./data/manager:/app/data
+      - ./logs/manager:/app/logs
+    networks:
+      - mycelium-network
+    depends_on:
+      - redis
+      - kafka
+      - node-registry
+    environment:
+      - COSMIC_ENV=cluster
+      - COSMIC_LOG_LEVEL=INFO
+      - REDIS_URL=redis://redis:6379/0
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - NODE_REGISTRY_URL=http://node-registry:8080
+      - CLUSTER_MAX_NODES=100
+      - CLUSTER_MIN_NODES=3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+
+  # ============================================================================
+  # Node registry — keeps track of all infant nodes in the cluster
+  # ============================================================================
+  node-registry:
+    image: nginx:1.27-alpine@sha256:afe1bc3f5ad4d69245ab39107c2a5a89b7ec19e8f62b3c0c467166a4e7dfb0b7
+    container_name: cm-node-registry
+    volumes:
+      - ./monitoring/registry.conf:/etc/nginx/conf.d/default.conf:ro
+      - node-registry-data:/var/cache/nginx
+    networks:
+      - mycelium-network
+    ports:
+      - "8080:80"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # ============================================================================
+  # Infant nodes — scale with `docker-compose --scale infant=N`
+  # ============================================================================
+  infant:
+    <<: *infant-base  # Reference to the base infant config (defined inline)
+    image: cosmic-mycelium:cluster
+    container_name: ${COMPOSE_PROJECT_NAME:-cm}-infant-${INFANT_ID}
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      node-manager:
+        condition: service_started
+    networks:
+      - mycelium-network
+    environment:
+      # Base configuration
+      - COSMIC_ENV=cluster
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=redis://redis:6379/0
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - NODE_MANAGER_URL=http://node-manager:5000
+      # Node identity (set via COMPOSE_PROJECT_NAME and INFANT_ID)
+      - INFANT_ID=${INFANT_ID:-infant-${HOSTNAME}}
+      - INFANT_NODE_INDEX=${INFANT_NODE_INDEX:-0}
+      # Cluster parameters
+      - CLUSTER_MODE=True
+      - BROADCAST_INTERVAL=5.0
+      - RESONANCE_THRESHOLD=0.6
+      - SYMBIOSIS_ENABLED=True
+      # Resource limits
+      - COSMIC_MAX_CPU=1.0
+      - COSMIC_MAX_MEMORY=1G
+    healthcheck:
+      test: ["CMD", "python", "-c", "
+import os
+from cosmic_mycelium.infant.hic import HIC
+hic = HIC()
+assert hic.energy > 0, 'Energy depleted'
+assert hic.breath_state.value in ('contract', 'diffuse', 'suspend'), 'Invalid breath state'
+print('OK')
+      "]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    # Per-node resource allocation (adjustable)
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        mode: "non-blocking"
+        buffering: "1"
+
+  # ============================================================================
+  # Cluster-wide services (shared by all infant nodes)
+  # ============================================================================
+  metrics-exporter:
+    image: otel/opentelemetry-collector-contrib:0.120.0
+    container_name: cm-metrics-exporter
+    command: >
+      --config=/etc/otel-collector-config.yaml
+    volumes:
+      - ./monitoring/otel-collector.yaml:/etc/otel-collector-config.yaml:ro
+    networks:
+      - mycelium-network
+    depends_on:
+      - prometheus
+      - jaeger
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+      - PROMETHEUS_REMOTE_WRITE_URL=http://prometheus:9090/api/v1/write
+    restart: unless-stopped
+
+  # ============================================================================
+  # Optional: Cluster-wide vector database for semantic memory
+  # ============================================================================
+  vector-db:
+    image: qdrant/qdrant:v1.14.2
+    container_name: cm-vector-db
+    volumes:
+      - qdrant-data:/qdrant/storage
+    networks:
+      - mycelium-network
+    ports:
+      - "6333:6333"  # REST API
+      - "6334:6334"  # gRPC
+    environment:
+      - QDRANT__SERVICE__HTTP_PORT=6333
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    command: >
+      qdrant
+      --storage-path=/qdrant/storage
+      --max-search-threads=4
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:6333/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    profiles: ["full"]
+
+# ============================================================================
+# Volume definitions
+# ============================================================================
+volumes:
+  node-registry-data:
+  qdrant-data:
+
+# ============================================================================
+# Network definition (shared with base compose)
+# ============================================================================
+networks:
+  mycelium-network:
+    external: true

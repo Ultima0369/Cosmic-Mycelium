@@ -1,0 +1,24 @@
+# Grafana datasource configuration — Prometheus
+apiVersion: 1
+
+datasources:
+  - name: Prometheus (Cosmic Mycelium)
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      timeInterval: '15s'
+      queryTimeout: '60s'
+      httpMethod: 'POST'
+    version: 1
+
+  - name: Jaeger (Traces)
+    type: jaeger
+    access: proxy
+    url: http://jaeger:16686
+    jsonData:
+      nodeGraph:
+        enabled: true
+    version: 1

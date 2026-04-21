@@ -1,0 +1,91 @@
+# Docker ignore — files NOT copied into image
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# CI/CD
+.github
+.gitlab
+.travis.yml
+.circleci
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env
+pip-log.txt
+pip-delete-this-directory.txt
+.tox
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+pytest.xml
+htmlcov
+*.cover
+.hypothesis
+
+# Development tools
+.venv
+venv
+env
+ENV
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# Docs build
+docs/_build
+site
+
+# Tests
+reports/
+test-results.xml
+junit.xml
+
+# Data generated at runtime
+data/
+logs/
+checkpoints/
+*.db
+*.sqlite
+
+# Pre-commit
+.secrets.baseline
+
+# Monitoring data
+monitoring/prometheus/data/
+monitoring/grafana/data/
+
+# Distribution
+dist/
+build/
+*.egg-info
+
+# Node (if any JS tooling is added later)
+node_modules
+npm-debug.log*
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# IDE specific
+*.sublime-*
+.ropeproject
+
+# Temporary
+*.tmp
+*.bak
+
+# Monitoring volume data (mounted at runtime)
+!.dockerignore

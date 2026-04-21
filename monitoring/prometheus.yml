@@ -1,0 +1,106 @@
+# Cosmic Mycelium — Prometheus Configuration
+# Collects metrics from all infant nodes via Pushgateway or scraping
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'cosmic-mycelium'
+    environment: '${ENVIRONMENT:-development}'
+
+# Alertmanager configuration (optional)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+# Rule files
+rule_files:
+  - '/etc/prometheus/rules/*.yml'
+
+# Scrape configurations
+scrape_configs:
+  # ============================================================================
+  # Prometheus self-monitoring
+  # ============================================================================
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+          role: 'monitoring'
+
+  # ============================================================================
+  # Infant node metrics (via pushgateway or scraping)
+  # ============================================================================
+  - job_name: 'infant-nodes'
+    honor_labels: true
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['infant:8000']
+        labels:
+          service: 'infant'
+          node_id: '${INFANT_ID:-unknown}'
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: '(.*):.*'
+        replacement: '${1}'
+        target_label: 'instance'
+
+  # ============================================================================
+  # Redis metrics
+  # ============================================================================
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:9121']
+        labels:
+          service: 'redis'
+          instance: 'redis-master'
+    metrics_path: '/metrics'
+
+  # ============================================================================
+  # Kafka metrics
+  # ============================================================================
+  - job_name: 'kafka'
+    static_configs:
+      - targets: ['kafka:9308']
+        labels:
+          service: 'kafka'
+          instance: 'kafka-broker'
+    metrics_path: '/metrics'
+
+  # ============================================================================
+  # Node Manager API
+  # ============================================================================
+  - job_name: 'node-manager'
+    static_configs:
+      - targets: ['node-manager:5000']
+        labels:
+          service: 'node-manager'
+          role: 'control-plane'
+    metrics_path: '/metrics'
+
+  # ============================================================================
+  # Custom Physics Validator
+  # ============================================================================
+  - job_name: 'physics-validator'
+    static_configs:
+      - targets: ['infant:8001']
+        labels:
+          service: 'physics'
+          role: 'validation'
+    metrics_path: '/physics/metrics'
+
+# Remote write (optional — for long-term storage)
+# remote_write:
+#   - url: 'https://prometheus-remote-write-endpoint/api/v1/write'
+#     basic_auth:
+#       username: 'user'
+#       password: 'pass'
+
+# Remote read (optional — for historical data)
+# remote_read:
+#   - url: 'https://prometheus-remote-read-endpoint/api/v1/read'
+#     basic_auth:
+#       username: 'user'
+#       password: 'pass'
