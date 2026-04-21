@@ -21,7 +21,7 @@ class SympNetEngine:
     energy conservation. In MVP, it's a harmonic oscillator with symplectic
     integration (leapfrog).
 
-    Physical Anchor: Over 1M steps, energy drift < 0.1%.
+    Physical Anchor: Over 1M steps, energy drift must stay < 0.1%.
     """
 
     mass: float = 1.0
@@ -32,6 +32,9 @@ class SympNetEngine:
     _history: deque = field(default_factory=lambda: deque(maxlen=1000))
     _integration_error: float = 0.0
 
+    # Base timestep for internal sub-stepping to ensure energy conservation
+    _BASE_DT: float = field(init=False, default=0.01, compare=False)
+
     def compute_energy(self, q: float, p: float) -> float:
         """
         Hamiltonian: H(q,p) = p²/(2m) + ½ k q²
@@ -40,34 +43,45 @@ class SympNetEngine:
         potential = 0.5 * self.spring_constant * (q * q)
         return kinetic + potential
 
+    def _apply_step(self, q: float, p: float, dt: float) -> Tuple[float, float]:
+        """
+        Apply one corrected leapfrog substep.
+        Force = -k * q (no mass division in force term).
+        """
+        p_half = p - 0.5 * dt * self.spring_constant * q
+        q_new = q + dt * (p_half / self.mass)
+        p_new = p_half - 0.5 * dt * self.spring_constant * q_new
+        if self.damping > 0:
+            p_new *= (1.0 - self.damping * dt)
+        return q_new, p_new
+
     def step(self, q: float, p: float, dt: float = 0.01) -> Tuple[float, float]:
         """
         Leapfrog (symplectic) integration step.
 
-        This integrator preserves phase-space volume and keeps energy
-        bounded over long timescales — the core of the "physical anchor".
+        Uses internal sub-stepping for large dt to maintain energy conservation.
         """
-        # Record energy before step
         e_before = self.compute_energy(q, p)
 
-        # Half-step momentum update
-        p_half = p - 0.5 * dt * (self.spring_constant * q / self.mass)
+        # Determine if sub-stepping is needed
+        abs_dt = abs(dt)
+        if abs_dt > self._BASE_DT:
+            # Sub-step with fixed base timestep
+            n = int(abs_dt // self._BASE_DT)
+            rem = abs_dt - n * self._BASE_DT
+            sign = 1.0 if dt > 0 else -1.0
+            q_cur, p_cur = q, p
+            for _ in range(n):
+                q_cur, p_cur = self._apply_step(q_cur, p_cur, sign * self._BASE_DT)
+            if rem > 1e-12:
+                q_cur, p_cur = self._apply_step(q_cur, p_cur, sign * rem)
+            q_new, p_new = q_cur, p_cur
+        else:
+            q_new, p_new = self._apply_step(q, p, dt)
 
-        # Full step position
-        q_new = q + dt * (p_half / self.mass)
-
-        # Half-step momentum update
-        p_new = p_half - 0.5 * dt * (self.spring_constant * q_new / self.mass)
-
-        # Apply damping if configured
-        if self.damping > 0:
-            p_new *= (1.0 - self.damping * dt)
-
-        # Record energy after step
         e_after = self.compute_energy(q_new, p_new)
         drift = abs(e_after - e_before) / max(e_before, 1e-9)
 
-        # Store in history
         self._history.append({
             "q": q_new,
             "p": p_new,
@@ -110,7 +124,12 @@ class SympNetEngine:
     def get_health(self) -> Dict[str, float]:
         """Health check — used for monitoring."""
         if len(self._history) < 10:
-            return {"status": "warming", "avg_drift": 0.0, "damping": self.damping}
+            return {
+                "status": "warming",
+                "avg_drift": 0.0,
+                "damping": self.damping,
+                "total_energy": self._history[-1]["energy"] if self._history else 0.0,
+            }
 
         recent = [h["drift"] for h in list(self._history)[-10:]]
         avg_drift = sum(recent) / len(recent)
@@ -119,5 +138,10 @@ class SympNetEngine:
             "status": "healthy" if avg_drift < 0.001 else "adapting",
             "avg_drift": avg_drift,
             "damping": self.damping,
-            "energy": self._history[-1]["energy"] if self._history else 0.0,
+            "total_energy": self._history[-1]["energy"] if self._history else 0.0,
         }
+
+    @property
+    def history(self) -> deque:
+        """Public read-only access to history for testing/debugging."""
+        return self._history

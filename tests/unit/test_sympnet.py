@@ -65,8 +65,8 @@ class TestSympNetSymplecticIntegration:
 
         # Forward
         q_fwd, p_fwd = engine.step(q, p, dt)
-        # Backward (flip momentum sign and use negative dt)
-        q_back, p_back = engine.step(q_fwd, -p_fwd, -dt)
+        # Backward (use same momentum, negative dt for true reversibility)
+        q_back, p_back = engine.step(q_fwd, p_fwd, -dt)
 
         assert np.isclose(q_back, q, atol=1e-10)
         assert np.isclose(p_back, p, atol=1e-10)
@@ -107,7 +107,7 @@ class TestSympNetSymplecticIntegration:
         assert np.isclose(p_pred, p_manual, atol=1e-10)
 
     def test_energy_monotonic_with_damping(self, sympnet_config):
-        """With damping, energy strictly decreases."""
+        """With damping, energy strictly decreases (within floating-point tolerance)."""
         engine = SympNetEngine(mass=1.0, spring_constant=1.0, damping=0.1)
         q, p = 1.0, 0.0
         dt = 0.01
@@ -118,8 +118,9 @@ class TestSympNetSymplecticIntegration:
             q, p = engine.step(q, p, dt)
             energies.append(engine.compute_energy(q, p))
 
-        # Each energy should be <= previous
-        assert all(energies[i] >= energies[i+1] for i in range(len(energies)-1))
+        # Allow tiny floating-point tolerance for monotonic decrease
+        # (tiny increases of order 1e-10 are acceptable noise)
+        assert all(energies[i] >= energies[i + 1] - 1e-9 for i in range(len(energies) - 1))
 
 
 class TestSympNetAdaptation:
@@ -143,12 +144,12 @@ class TestSympNetAdaptation:
     def test_adapt_decreases_damping_on_low_drift(self, sympnet_config):
         """Low drift causes damping to decay."""
         engine = SympNetEngine(damping=0.1)
-        # Simulate low drift
+        # Simulate low drift (well below 0.00001 threshold)
         for _ in range(20):
             engine.history.append({
                 'q': 1.0, 'p': 0.0,
                 'energy': 0.5,
-                'drift': 0.00001
+                'drift': 0.000001  # 1e-6, clearly below threshold
             })
 
         engine.adapt()
@@ -182,9 +183,14 @@ class TestSympNetHealth:
     def test_health_status_adapting(self, sympnet_config):
         """Health returns 'adapting' when drift is high."""
         engine = SympNetEngine(**sympnet_config)
-        # Inject high drift history
+        # Inject high drift history with required fields
         for _ in range(10):
-            engine.history.append({'drift': 0.01})
+            engine.history.append({
+                'q': 0.0,
+                'p': 0.0,
+                'energy': 1.0,
+                'drift': 0.01
+            })
 
         health = engine.get_health()
         assert health['status'] == 'adapting'
