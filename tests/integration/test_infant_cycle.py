@@ -5,8 +5,11 @@ Tests the full infant lifecycle: perceive → predict → act → diffuse cycle.
 
 from __future__ import annotations
 
+import time
+from unittest.mock import patch
 import pytest
 from cosmic_mycelium.infant.main import SiliconInfant
+from cosmic_mycelium.infant.hic import BreathState
 
 
 class TestInfantLifecycle:
@@ -101,6 +104,30 @@ class TestInfantLifecycle:
             p.value_payload and p.value_payload.get("action") == "suspend"
             for p in infant.outbox
         )
+
+    def test_suspend_recovery_after_duration(self):
+        """SUSPEND state recovers exactly after suspend_duration with recovery_energy."""
+        # This test verifies M2 milestone: suspend → 5s recovery → energy restored
+        infant = SiliconInfant("suspend-recovery-test")
+        # Force very low energy to trigger SUSPEND on first update_breath call
+        with patch.object(infant.hic, '_lock'):
+            infant.hic._energy = 5.0  # Below 20.0 SUSPEND threshold
+
+        initial_suspend_count = infant.hic.suspend_count
+
+        # First call: should enter SUSPEND (energy < 20.0)
+        infant.hic.update_breath(confidence=0.9, work_done=False)
+        assert infant.hic.state == BreathState.SUSPEND
+        assert infant.hic.suspend_count == initial_suspend_count + 1
+        suspend_end_time = infant.hic._suspend_end_time
+
+        # Advance time past suspend_end_time by patching monotonic
+        with patch('time.monotonic', return_value=suspend_end_time + 0.1):
+            # Second call: should recover from SUSPEND
+            infant.hic.update_breath(confidence=0.9, work_done=False)
+            # After recovery: state should be CONTRACT, energy set to recovery_energy (60.0)
+            assert infant.hic.state == BreathState.CONTRACT
+            assert infant.hic.energy == infant.hic.config.recovery_energy
 
     def test_outbox_populated_with_actions(self):
         """During CONTRACT phase, outbox receives action packets."""

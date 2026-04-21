@@ -137,18 +137,90 @@ services:
       retries: 3
     restart: unless-stopped
 
-# ============================================================================
-# Volume definitions
-# ============================================================================
-volumes:
-  redis-data:
-    driver: local
-  kafka-data:
-    driver: local
-  prometheus-data:
-    driver: local
-  grafana-data:
-    driver: local
+  # ============================================================================
+  # Infant Application — Single Silicon Infant Node
+  # ============================================================================
+  infant:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cm-infant
+    hostname: infant
+    networks:
+      mycelium-network:
+        ipv4_address: 10.10.0.10
+    environment:
+      # Core identity
+      COSMIC_ENV: ${COSMIC_ENV:-development}
+      INFANT_ID: ${INFANT_ID:-infant-001}
+      INFANT_NODE_ROLE: ${INFANT_NODE_ROLE:-standalone}  # standalone/cluster/global
+
+      # HIC energy management
+      INFANT_ENERGY_MAX: ${INFANT_ENERGY_MAX:-100.0}
+      INFANT_CONTRACT_DURATION: ${INFANT_CONTRACT_DURATION:-0.055}
+      INFANT_DIFFUSE_DURATION: ${INFANT_DIFFUSE_DURATION:-0.005}
+      INFANT_SUSPEND_DURATION: ${INFANT_SUSPEND_DURATION:-5.0}
+      INFANT_RECOVERY_ENERGY: ${INFANT_RECOVERY_ENERGY:-60.0}
+      INFANT_RECOVERY_RATE: ${INFANT_RECOVERY_RATE:-0.5}
+
+      # Physics anchor thresholds
+      PHYSICS_ENERGY_DRIFT_MAX: ${PHYSICS_ENERGY_DRIFT_MAX:-0.001}
+      PHYSICS_ADAPTATION_THRESHOLD: ${PHYSICS_ADAPTATION_THRESHOLD:-0.001}
+
+      # Service endpoints
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+
+      # Observability
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      METRICS_PORT: ${METRICS_PORT:-8000}
+      HEALTH_PORT: ${HEALTH_PORT:-8001}
+
+      # Data persistence
+      COSMIC_MYCELIUM_DATA_DIR: /app/data
+      COSMIC_MYCELIUM_LOG_DIR: /app/logs
+    volumes:
+      - infant-data:/app/data
+      - infant-logs:/app/logs
+      - infant-checkpoints:/app/checkpoints
+    ports:
+      - "8000:8000"   # Metrics endpoint
+      - "8001:8001"   # Health check endpoint
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "from cosmic_mycelium.infant.main import SiliconInfant; print('OK')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    profiles:
+      - dev
+      - cluster
+      - full
+
+  # ============================================================================
+  # Volume definitions
+  # ============================================================================
+  volumes:
+    redis-data:
+      driver: local
+    kafka-data:
+      driver: local
+    prometheus-data:
+      driver: local
+    grafana-data:
+      driver: local
+    infant-data:
+      driver: local
+    infant-logs:
+      driver: local
+    infant-checkpoints:
+      driver: local
 
 # ============================================================================
 # Named networks

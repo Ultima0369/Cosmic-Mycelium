@@ -9,6 +9,7 @@ import json
 import pytest
 from cosmic_mycelium.utils.health import HealthChecker
 from cosmic_mycelium.infant.hic import BreathState
+from unittest.mock import patch, MagicMock, AsyncMock
 
 
 class MockInfant:
@@ -75,3 +76,48 @@ class TestHealthCheckerLiveness:
         assert result.status == 503
         body = json.loads(result.body.decode())
         assert body["status"] == "degraded"
+
+
+class TestHealthCheckerLifecycle:
+    """Tests for start() and stop() lifecycle methods."""
+
+    @pytest.mark.asyncio
+    async def test_start_sets_up_router(self):
+        """start() configures health endpoints on the app."""
+        mock_runner = AsyncMock()
+
+        with patch('cosmic_mycelium.utils.health.web.Application') as mock_app_cls, \
+             patch('cosmic_mycelium.utils.health.web.AppRunner', return_value=mock_runner), \
+             patch('cosmic_mycelium.utils.health.web.TCPSite') as mock_site_class:
+            mock_site = AsyncMock()
+            mock_site_class.return_value = mock_site
+
+            checker = HealthChecker(port=8080)
+            await checker.start()
+
+            mock_app_cls.assert_called_once()
+            mock_runner.setup.assert_awaited_once()
+            mock_site_class.assert_called_once()
+            mock_site.start.assert_awaited_once()
+            assert checker._runner is mock_runner
+
+    @pytest.mark.asyncio
+    async def test_stop_cleans_up_when_started(self):
+        """stop() cleans up the runner if it exists."""
+        checker = HealthChecker()
+        mock_runner = AsyncMock()
+        checker._runner = mock_runner
+
+        await checker.stop()
+
+        mock_runner.cleanup.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_stop_does_nothing_when_not_started(self):
+        """stop() is safe to call even if start() was never called."""
+        checker = HealthChecker()
+
+        # Should not raise
+        await checker.stop()
+
+        assert checker._runner is None

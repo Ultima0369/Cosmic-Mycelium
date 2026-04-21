@@ -5,10 +5,13 @@ Tests Hebbian reinforcement, feature extraction (SHA256), trace forgetting, path
 
 from __future__ import annotations
 
+import math
+import time
 import pytest
 from cosmic_mycelium.infant.core.layer_4_myelination_memory import (
     MyelinationMemory,
     MemoryTrace,
+    DecaySchedule,
 )
 
 
@@ -315,4 +318,183 @@ class TestCoverage:
         mem = MyelinationMemory()
         mem.reinforce(["a", "b"])
         coverage = mem.get_coverage_ratio()
+        assert 0.0 <= coverage <= 1.0
+
+
+class TestForgettingDecaySchedules:
+    """Tests for forget() with different decay schedules."""
+
+    def test_forget_exponential_decay(self):
+        """Exponential decay reduces strength over time."""
+        mem = MyelinationMemory(decay_schedule=DecaySchedule.EXPONENTIAL, decay_rate=0.1)
+        path = ["test"]
+        # Create trace with old timestamp (2 hours ago)
+        old_time = time.time() - 7200  # 2 hours
+        mem.traces[path[0]] = MemoryTrace(
+            path=path[0],
+            strength=1.0,
+            last_accessed=old_time,
+            access_count=1,
+            decay_schedule=DecaySchedule.EXPONENTIAL,
+            decay_rate=0.1,
+        )
+        mem.forget()
+        # After 2 hours with rate 0.1/hour: decay = exp(-0.1 * 2) ≈ 0.818
+        expected = 1.0 * math.exp(-0.1 * 2)
+        assert mem.traces[path[0]].strength == pytest.approx(expected, rel=1e-2)
+
+    def test_forget_step_decay(self):
+        """STEP decay drops strength at hourly boundaries."""
+        mem = MyelinationMemory(decay_schedule=DecaySchedule.STEP, decay_rate=0.2)
+        path = ["step_test"]
+        # 2.5 hours ago → 2 full steps
+        old_time = time.time() - 9000  # 2.5 hours
+        mem.traces[path[0]] = MemoryTrace(
+            path=path[0],
+            strength=1.0,
+            last_accessed=old_time,
+            access_count=1,
+            decay_schedule=DecaySchedule.STEP,
+            decay_rate=0.2,
+        )
+        mem.forget()
+        # 2 steps × (1-0.2) = 0.64
+        assert mem.traces[path[0]].strength == pytest.approx(0.64, rel=1e-2)
+
+    def test_forget_sigmoid_decay(self):
+        """SIGMOID decay is slow then fast then slow."""
+        mem = MyelinationMemory(decay_schedule=DecaySchedule.SIGMOID)
+        path = ["sigmoid_test"]
+        # 10 hours ago — past the steep part (t0=5)
+        old_time = time.time() - 36000  # 10 hours
+        mem.traces[path[0]] = MemoryTrace(
+            path=path[0],
+            strength=1.0,
+            last_accessed=old_time,
+            access_count=1,
+            decay_schedule=DecaySchedule.SIGMOID,
+            decay_rate=0.01,
+        )
+        mem.forget()
+        # Sigmoid at age=10 drives strength ≈ 0, below 0.05 deletion threshold
+        assert path[0] not in mem.traces
+
+    def test_forget_removes_trace_when_strength_below_threshold(self):
+        """Traces with strength < 0.05 are deleted."""
+        mem = MyelinationMemory()
+        mem.traces["fading"] = MemoryTrace(
+            path="fading",
+            strength=0.04,
+            last_accessed=time.time() - 10000,
+            access_count=1,
+        )
+        mem.forget()
+        assert "fading" not in mem.traces
+
+
+class TestConsolidation:
+    """Tests for consolidate_similar_paths()."""
+
+    def test_consolidate_merges_paths_with_common_prefix(self):
+        """Paths sharing prefix are consolidated into stronger trace."""
+        mem = MyelinationMemory(consolidation_threshold=0.5)
+        # Create two paths with common prefix "a->b"
+        mem.traces["a->b->c"] = MemoryTrace(path="a->b->c", strength=2.0, last_accessed=time.time(), access_count=1)
+        mem.traces["a->b->d"] = MemoryTrace(path="a->b->d", strength=3.0, last_accessed=time.time(), access_count=1)
+
+        merged = mem.consolidate_similar_paths()
+
+        assert merged == 1  # One prefix trace created
+        assert "a->b" in mem.traces
+        # Prefix strength = min(10.0, avg_strength * 0.5) = min(10, 2.5*0.5=1.25)
+        assert mem.traces["a->b"].strength == pytest.approx(1.25, rel=1e-2)
+        # Original paths preserved
+        assert "a->b->c" in mem.traces
+        assert "a->b->d" in mem.traces
+
+    def test_consolidate_strengthens_existing_prefix(self):
+        """Existing prefix trace gets strengthened."""
+        mem = MyelinationMemory()
+        # Existing prefix with some strength
+        mem.traces["x->y"] = MemoryTrace(path="x->y", strength=1.0, last_accessed=time.time(), access_count=1)
+        mem.traces["x->y->z"] = MemoryTrace(path="x->y->z", strength=2.0, last_accessed=time.time(), access_count=1)
+
+        mem.consolidate_similar_paths()
+
+        # Existing "x->y" strength increased by avg_strength*0.3 = ((1+2)/2)*0.3 = 1.5*0.3 = 0.45
+        assert mem.traces["x->y"].strength == pytest.approx(1.45, rel=1e-2)
+
+    def test_consolidate_no_merge_for_single_paths(self):
+        """Paths without common prefix are not consolidated."""
+        mem = MyelinationMemory()
+        mem.traces["solo"] = MemoryTrace(path="solo", strength=1.0, last_accessed=time.time(), access_count=1)
+
+        merged = mem.consolidate_similar_paths()
+
+        assert merged == 0
+        assert "solo" in mem.traces
+
+
+class TestNormalization:
+    """Tests for normalize_strengths()."""
+
+    def test_normalize_scales_to_target_max(self):
+        """All strengths scaled to [0.1, target_max]."""
+        mem = MyelinationMemory()
+        mem.traces["a"] = MemoryTrace(path="a", strength=1.0, last_accessed=0.0, access_count=1)
+        mem.traces["b"] = MemoryTrace(path="b", strength=5.0, last_accessed=0.0, access_count=1)
+        mem.traces["c"] = MemoryTrace(path="c", strength=9.0, last_accessed=0.0, access_count=1)
+
+        mem.normalize_strengths(target_max=5.0)
+
+        # Min=1.0, Max=9.0 → normalized: 0.1 + (5-0.1)*(s-1)/(9-1)
+        # a: 0.1 + 4.9*(0/8) = 0.1
+        # b: 0.1 + 4.9*(4/8) = 0.1 + 2.45 = 2.55
+        # c: 0.1 + 4.9*(8/8) = 5.0
+        assert mem.traces["a"].strength == pytest.approx(0.1)
+        assert mem.traces["b"].strength == pytest.approx(2.55, rel=1e-2)
+        assert mem.traces["c"].strength == pytest.approx(5.0)
+
+    def test_normalize_no_change_when_all_equal(self):
+        """No normalization when all strengths equal."""
+        mem = MyelinationMemory()
+        mem.traces["a"] = MemoryTrace(path="a", strength=2.0, last_accessed=0.0, access_count=1)
+        mem.traces["b"] = MemoryTrace(path="b", strength=2.0, last_accessed=0.0, access_count=1)
+
+        mem.normalize_strengths(target_max=5.0)
+
+        # Should be unchanged (early return)
+        assert mem.traces["a"].strength == 2.0
+        assert mem.traces["b"].strength == 2.0
+
+    def test_normalize_handles_single_trace(self):
+        """Normalization with single trace does nothing."""
+        mem = MyelinationMemory()
+        mem.traces["single"] = MemoryTrace(path="single", strength=3.0, last_accessed=0.0, access_count=1)
+
+        mem.normalize_strengths()
+
+        assert mem.traces["single"].strength == 3.0
+
+
+class TestCoverageEdgeCases:
+    """Edge cases in get_coverage_ratio()."""
+
+    def test_coverage_max_entropy_single_trace(self):
+        """With single trace, max_entropy = log(1) = 0, handled gracefully."""
+        mem = MyelinationMemory()
+        mem.reinforce(["only_one"])
+        # Should not divide by zero; entropy component becomes 0
+        coverage = mem.get_coverage_ratio()
+        assert 0.0 <= coverage <= 1.0
+        assert coverage > 0  # Some capacity utilization
+
+    def test_coverage_with_zero_total_strength(self):
+        """If all strengths are zero (edge case), coverage still valid."""
+        mem = MyelinationMemory()
+        # Manually set zero-strength traces
+        mem.traces["zero"] = MemoryTrace(path="zero", strength=0.0, last_accessed=0.0, access_count=1)
+        coverage = mem.get_coverage_ratio()
+        # Should be finite and in range
+        assert math.isfinite(coverage)
         assert 0.0 <= coverage <= 1.0

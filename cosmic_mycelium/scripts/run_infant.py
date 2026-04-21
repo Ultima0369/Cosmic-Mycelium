@@ -152,6 +152,7 @@ class InfantRunner:
     async def shutdown(self):
         """Graceful shutdown."""
         self.logger.info("🌙 Shutting down infant...")
+        self.running = False
 
         if self.metrics_server:
             await self.metrics_server.stop()

@@ -107,8 +107,6 @@ class ClusterRunner:
         self.node_manager = NodeManager(
             min_nodes=self.config.min_nodes,
             max_nodes=self.config.max_nodes,
-            environment=self.config.env,
-            profile=self.config.profile,
         )
 
         # Start node manager

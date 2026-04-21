@@ -27,6 +27,8 @@ class SemanticMapper:
 
     Bridges raw physical signals (vibration, temperature) with abstract concepts.
     Builds a "causal potential field" — gradients of what leads to what.
+
+    Learning: Simple moving average without normalization.
     """
 
     def __init__(
@@ -41,17 +43,21 @@ class SemanticMapper:
                 "semantic_mapper", "embedding_dim", 16
             )
         else:
-            # Fallback to infant-scale default
             self.embedding_dim = 16
         self.concepts: Dict[str, SemanticConcept] = {}
         self.fingerprint = PhysicalFingerprint()
+        self._total_observations = 0
 
     def map(self, physical_state: Dict[str, float]) -> SemanticConcept:
         """
         Map a physical state to a semantic concept.
         Creates new concept if unknown, reinforces existing if known.
+
+        Feature vector: raw values padded/truncated to embedding_dim (NO normalization).
+        Update: 0.9 * old + 0.1 * new (EMA without renorm).
         """
-        # Simple feature vector from physical state values
+        self._total_observations += 1
+
         values = list(physical_state.values())
         if not values:
             vec = np.zeros(self.embedding_dim)
@@ -61,17 +67,17 @@ class SemanticMapper:
                 arr = np.pad(arr, (0, self.embedding_dim - len(arr)))
             vec = arr[:self.embedding_dim]
 
-        # Generate fingerprint-based ID
         fp = self.fingerprint.generate(physical_state)
+
         if fp in self.concepts:
             concept = self.concepts[fp]
             concept.frequency += 1
-            # Update embedding as moving average (no normalization)
+            # EMA update: 0.9 * old + 0.1 * new (no normalization)
             concept.feature_vector = 0.9 * concept.feature_vector + 0.1 * vec
         else:
             concept = SemanticConcept(
                 id=fp,
-                feature_vector=vec,
+                feature_vector=vec.copy(),
             )
             self.concepts[fp] = concept
 
@@ -81,9 +87,18 @@ class SemanticMapper:
         """
         Get gradient toward a target concept.
         Returns a direction vector in semantic space.
+        If target unknown, returns zero vector (no guidance).
         """
         if target not in self.concepts:
             return np.zeros(self.embedding_dim)
         target_vec = self.concepts[target].feature_vector
-        # Simplified: return negative of target (gradient descent)
-        return -target_vec
+        # Simplified: return direction toward target
+        return target_vec
+
+    def get_status(self) -> Dict:
+        """Return mapper status for monitoring."""
+        return {
+            "concept_count": len(self.concepts),
+            "total_observations": self._total_observations,
+            "embedding_dim": self.embedding_dim,
+        }
