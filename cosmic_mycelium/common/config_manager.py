@@ -37,6 +37,17 @@ class ConfigManager:
     Each scale inherits base config and overrides specific parameters.
     """
 
+    # Valid layer names for per-layer config access
+    VALID_LAYERS = {
+        "abstract_segmenter",
+        "semantic_mapper",
+        "slime_explorer",
+        "myelination",
+        "superbrain",
+        "symbiosis",
+    }
+    VALID_SCALES = {"infant", "cluster", "global", "hic"}
+
     # Predefined scale configurations
     SCALES = {
         "infant": ScaleConfig(
@@ -119,20 +130,22 @@ class ConfigManager:
         Get a config parameter.
 
         Layer can be:
-        - A layer name: "semantic_mapper", "slime_explorer", etc.
         - A scale name: "infant", "cluster", "global", "hic" (returns scale-level params)
+        - A layer name: "semantic_mapper", "slime_explorer", etc. (returns per-layer config)
+
+        Defense-in-depth: only explicit allowlist layers are accepted. Unknown
+        layers return default (if provided) or raise KeyError.
         """
-        # Special handling for scale-level parameters
-        if layer in ("infant", "cluster", "global", "hic"):
-            # Return param from this scale's params dict
+        # Validate layer against explicit allowlist (reject arbitrary attribute access)
+        if layer in self.VALID_SCALES:
             layer_cfg = self.config.params
+        elif layer in self.VALID_LAYERS:
+            layer_cfg = getattr(self.config, layer)
         else:
-            # Get per-layer config dict
-            layer_cfg = getattr(self.config, layer, None)
-            if layer_cfg is None:
-                if default is not None:
-                    return default
-                raise KeyError(f"Unknown layer: {layer}")
+            # Unknown layer — return default or raise (preserves backward compat)
+            if default is not None:
+                return default
+            raise KeyError(f"Unknown layer: {layer}")
 
         if param in layer_cfg:
             return layer_cfg[param]

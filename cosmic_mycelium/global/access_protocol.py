@@ -44,8 +44,10 @@ class GlobalAccessProtocol:
 
     def can_join(self, node: NodeMetadata) -> bool:
         """Check if node meets admission criteria."""
-        # 1. Fingerprint must be valid format
+        # 1. Fingerprint must be valid format (SHA-256[:16] = 16 hex chars)
         if len(node.fingerprint) != 16:
+            return False
+        if not all(c in "0123456789abcdef" for c in node.fingerprint.lower()):
             return False
         # 2. Energy check
         if node.hic_snapshot.get("energy", 0) < 20:
