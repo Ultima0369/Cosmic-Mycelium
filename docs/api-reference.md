@@ -9,10 +9,13 @@ Complete reference for the six-layer infant core API.
 - [Layer 2 — SemanticMapper](#layer-2---semanticmapper)
 - [Layer 3 — SlimeExplorer](#layer-3---slimeexplorer)
 - [Layer 4 — MyelinationMemory](#layer-4---myelinationmemory)
+- [Utilities — SemanticVectorIndex](#utilities---semanticvectorindex)
+- [Common — FeatureManager](#common---featuremanager)
 - [Layer 5 — SuperBrain](#layer-5---superbrain)
 - [Layer 6 — SymbiosisInterface](#layer-6---symbiosisinterface)
 - [Core — SiliconInfant](#core---siliconinfant)
 - [Common — ConfigManager](#common---configmanager)
+- [Skills — Plugin System](#skills---plugin-system)
 - [Data Structures](#data-structures)
 
 ---
@@ -342,6 +345,25 @@ No-op if `max_s ≤ min_s`.
 
 ---
 
+##### `consolidate_semantic_paths(similarity_threshold: float = 0.9) -> int`
+
+Epic 3 — Semantic consolidation of paths with similar end-state embeddings.
+
+**Process**:
+1. Collect all traces with non-None `state_embedding`.
+2. Compute pairwise cosine similarity matrix.
+3. Greedy merge: for each pair with similarity ≥ threshold, merge the weaker trace into the stronger (strength += 0.3 × weaker, access_count absorbed).
+4. Delete merged traces.
+
+**Parameters**:
+- `similarity_threshold` — Cosine similarity ∈ [0, 1] to consider two end states "semantically similar". Default 0.9 (high precision).
+
+**Returns**: Number of traces merged (absorbed).
+
+**Note**: Requires `semantic_mapper` to be set (otherwise returns 0). End-state embeddings are computed automatically during `reinforce(end_state=...)`.
+
+---
+
 ##### `get_coverage_ratio() -> float`
 
 Multi-component memory coverage metric ∈ [0.0, 1.0].
@@ -390,6 +412,7 @@ class MemoryTrace:
     created: float = field(default_factory=time.time)
     decay_schedule: DecaySchedule = DecaySchedule.EXPONENTIAL
     decay_rate: float = 0.01         # Per-hour decay coefficient
+    state_embedding: np.ndarray | None = None  # Epic 3: end-state semantic vector for consolidation
 ```
 
 ---
@@ -405,7 +428,329 @@ class DecaySchedule(Enum):
 
 ---
 
-## Layer 5 — SuperBrain
+## Utilities — SemanticVectorIndex
+
+**Module**: `cosmic_mycelium.infant.core.semantic_vector_index`
+
+FAISS-based vector similarity search with numpy fallback.
+
+### Class: `SemanticVectorIndex`
+
+```python
+SemanticVectorIndex(dim: int, index_path: Path | None = None)
+```
+
+**Parameters**:
+- `dim` — Embedding dimensionality (must match all query/insert vectors).
+- `index_path` — Optional directory to load persisted index from (`index.faiss`, `id_map.pkl`).
+
+**Attributes**:
+- `index: faiss.IndexFlatIP | None` — FAISS inner-product index (cosine on normalized vectors).
+- `id_map: List[str]` — Row index → feature code ID mapping.
+- `_fallback_vectors: List[Tuple[str, np.ndarray]]` — Numpy fallback storage when FAISS unavailable.
+
+---
+
+#### Methods
+
+##### `add(feature_code_id: str, vector: np.ndarray) -> None`
+
+Add a vector to the index.
+
+**Process**:
+1. Cast to `float32`, reshape to `(1, dim)`.
+2. L2-normalize (for cosine similarity).
+3. If FAISS available: `index.add()`; else append to `_fallback_vectors`.
+4. Append `feature_code_id` to `id_map`.
+
+---
+
+##### `search(query_vector: np.ndarray, k: int = 5) -> List[Tuple[str, float]]`
+
+Nearest-neighbor search.
+
+**Process**:
+1. Normalize query vector to unit length.
+2. If FAISS: `index.search()` returns (distances, indices).
+3. Else fallback: linear dot product over `_fallback_vectors`.
+4. Map row indices back to `feature_code_id` via `id_map`.
+
+**Returns**: List of `(feature_code_id, similarity_score)` sorted descending by score. Score range [−1, 1] for cosine.
+
+---
+
+##### `save(path: Path) -> None`
+
+Persist index to disk.
+
+**Files written**:
+- `{path}/index.faiss` — FAISS binary index (if FAISS enabled).
+- `{path}/id_map.pkl` — Pickled ID mapping.
+
+---
+
+##### `load(path: Path) -> None`
+
+Load index from disk.
+
+**Behavior**: Reads `index.faiss` via `faiss.read_index()` and `id_map.pkl` via pickle. If files missing, index starts empty.
+
+---
+
+##### `clear() -> None`
+
+Remove all vectors, resetting index to empty state.
+
+---
+
+## Common — FeatureManager
+
+**Module**: `cosmic_mycelium.infant.feature_manager`
+
+Persistent "myelinated memory" manager inspired by Hermes Skill Manager. Features (called "特征码" / feature codes) are physical-anchor-verified successful experiences.
+
+### Class: `FeatureManager`
+
+```python
+FeatureManager(
+    infant_id: str,
+    storage_path: Path | None = None,
+    semantic_mapper: Any | None = None
+)
+```
+
+**Parameters**:
+- `infant_id` — Unique infant node identifier.
+- `storage_path` — Directory for JSON feature files (default: `~/.cosmic_mycelium/{infant_id}/features/`).
+- `semantic_mapper` — Optional SemanticMapper for computing embeddings (enables Epic 3 features).
+
+**Attributes**:
+- `features: Dict[str, FeatureCode]` — In-memory feature code registry.
+- `pattern_index: Dict[str, List[str]]` — Trigger pattern → feature code IDs inverted index.
+- `vector_index: SemanticVectorIndex` — Epic 3: FAISS vector index for semantic search.
+- `storage_path: Path` — Disk directory for feature JSON files.
+- `index_path: Path` — Directory for FAISS index files (`index.faiss`, `id_map.pkl`).
+
+---
+
+#### Methods
+
+##### `create_or_update(name, description, trigger_patterns, action_sequence, validation_fingerprint=None) -> FeatureCode`
+
+Create a new feature code or update an existing one (same name + trigger patterns → same ID).
+
+**Behavior**:
+- ID generation: `SHA256(name + sorted(trigger_patterns))[:12]`
+- If existing: merge action sequences (new prepended, keep last 10), update description, optionally update fingerprint.
+- If new: create `FeatureCode`, insert into `pattern_index`.
+- Persist to disk and (if semantic_mapper present) compute embedding → add to vector index.
+
+**Returns**: The created or updated `FeatureCode`.
+
+---
+
+##### `match(perceived_patterns: List[str], min_efficacy: float = 0.3) -> List[FeatureCode]`
+
+Pattern-based feature lookup (pre-Epic 3 legacy method).
+
+**Process**:
+1. Collect all feature IDs whose `trigger_patterns` intersect with `perceived_patterns`.
+2. Filter by `efficacy() >= min_efficacy`.
+3. Sort by `efficacy × time_decay`, where `time_decay = 0.9^((now − last_used)/86400)` (daily 0.9 decay).
+
+**Returns**: Sorted list of matching `FeatureCode` objects.
+
+---
+
+##### `recall_semantic(query: str, k: int = 5) -> List[FeatureCode]` *(Epic 3)*
+
+Semantic similarity search over feature codes.
+
+**Process**:
+1. Convert `query` text to embedding via `text_to_embedding(query, dim=vector_index.dim)`.
+2. Normalize to unit length.
+3. FAISS (or numpy fallback) nearest-neighbor search for top-`k`.
+4. Record `knowledge_recall_hits` or `knowledge_recall_misses` Prometheus metric.
+
+**Returns**: List of up to `k` most semantically similar `FeatureCode` objects.
+
+---
+
+##### `recall_by_embedding(vector: np.ndarray, k: int = 5) -> List[FeatureCode]` *(Epic 3)*
+
+Direct vector-based similarity search (no query text).
+
+**Parameters**:
+- `vector` — Raw embedding vector (will be normalized internally).
+- `k` — Number of nearest neighbors.
+
+**Returns**: List of most similar feature codes by cosine similarity.
+
+---
+
+##### `cluster_active_features(min_samples: int = 3, eps: float = 0.3) -> Dict[int, List[FeatureCode]]` *(Epic 3)*
+
+DBSCAN-style density-based clustering of features by embedding similarity.
+
+**Process**:
+1. Collect all features with non-None `embedding`.
+2. If fewer than `min_samples`, return empty dict.
+3. Compute pairwise cosine distance matrix (`1 - cosine_similarity`).
+4. Run density-based clustering: core point = ≥ `min_samples` neighbors within `eps`.
+5. Assign `cluster_id` attribute on each clustered feature.
+6. Persist cluster assignments to `clusters.json`.
+
+**Parameters**:
+- `min_samples` — Minimum points to form a cluster (default 3).
+- `eps` — Maximum cosine distance (not similarity!) to be considered a neighbor (default 0.3 → similarity ≥ 0.7).
+
+**Returns**: Dict mapping `cluster_id` (0, 1, ...) → list of features in that cluster. Noise points (unclustered) omitted.
+
+---
+
+##### `get_cluster_label(cluster_id: int) -> str` *(Epic 3)*
+
+Generate a human-readable label for a cluster by extracting most common non-stopwords from member feature names/descriptions.
+
+**Algorithm**:
+1. Gather all words from `name` and `description` of cluster members.
+2. Filter stopwords (the, and, or, for, in, on, with, to, a, an, of, is, are) and short words (≤2 chars).
+3. Return top 3 most common words joined by spaces.
+
+**Returns**: Label like `"vibration energy response"` or `"cluster_{id}"` if no words found.
+
+---
+
+##### `get(code_id: str) -> FeatureCode | None`
+
+Get a single feature by ID.
+
+---
+
+##### `reinforce(code_id: str, success: bool, saliency: float = 1.0) -> None`
+
+Reinforce or weaken a feature's efficacy, with optional saliency weighting.
+
+**Behavior**:
+- Increment `success_count` or `failure_count` by `1.0 × saliency`.
+- Update `last_used = now`.
+- Auto-forget if `efficacy() < 0.1` and total uses > 10.
+- Guarded by `pause_adaptation` meta-cognitive suspend (IMP-04).
+
+---
+
+##### `list_all() -> List[FeatureCode]`
+
+All features sorted by efficacy descending.
+
+---
+
+##### `get_stats() -> Dict`
+
+Summary metrics for monitoring.
+
+---
+
+### Data Structure: `FeatureCode`
+
+```python
+@dataclass
+class FeatureCode:
+    code_id: str                        # SHA256(name+sorted(patterns))[:12]
+    name: str                           # Human-readable name
+    description: str                    # When this feature is useful
+    trigger_patterns: List[str]         # Perception pattern keywords
+    action_sequence: List[Dict]         # Recommended action parameters
+    success_count: float = 0            # Hebbian successes (may be fractional due to saliency)
+    failure_count: float = 0            # Hebbian failures
+    last_used: float = time.time()      # Last reinforcement timestamp
+    created_at: float = time.time()     # Creation timestamp
+    validation_fingerprint: str | None  # Physical fingerprint verifying successful deployment
+    embedding: np.ndarray | None = None # Epic 3: normalized embedding vector for semantic search
+    cluster_id: int | None = None       # Epic 3: assigned cluster ID from cluster_active_features()
+```
+
+**Methods**:
+- `efficacy() → float` — Returns `success / (success + failure)` or 0.5 if unused.
+- `reinforce(success: bool, saliency: float = 1.0) → None` — Update counts and `last_used`.
+- `compute_embedding(semantic_mapper, dim=None) → np.ndarray` — Compute normalized embedding from name/description/triggers.
+- `to_dict() / from_dict()` — JSON serialization (embedding converted to/from list).
+
+---
+
+## Utilities — SemanticVectorIndex
+
+**Module**: `cosmic_mycelium.infant.core.semantic_vector_index`
+
+FAISS-based vector similarity search with numpy fallback.
+
+### Class: `SemanticVectorIndex`
+
+```python
+SemanticVectorIndex(dim: int, index_path: Path | None = None)
+```
+
+**Parameters**:
+- `dim` — Embedding dimensionality (must match all query/insert vectors).
+- `index_path` — Optional directory to load persisted index from (`index.faiss`, `id_map.pkl`).
+
+**Attributes**:
+- `index: faiss.IndexFlatIP | None` — FAISS inner-product index (cosine on normalized vectors).
+- `id_map: List[str]` — Row index → feature code ID mapping.
+- `_fallback_vectors: List[Tuple[str, np.ndarray]]` — Numpy fallback storage when FAISS unavailable.
+
+---
+
+#### Methods
+
+##### `add(feature_code_id: str, vector: np.ndarray) -> None`
+
+Add a vector to the index.
+
+**Process**:
+1. Cast to `float32`, reshape to `(1, dim)`.
+2. L2-normalize (for cosine similarity).
+3. If FAISS available: `index.add()`; else append to `_fallback_vectors`.
+4. Append `feature_code_id` to `id_map`.
+
+---
+
+##### `search(query_vector: np.ndarray, k: int = 5) -> List[Tuple[str, float]]`
+
+Nearest-neighbor search.
+
+**Process**:
+1. Normalize query vector to unit length.
+2. If FAISS: `index.search()` returns (distances, indices).
+3. Else fallback: linear dot product over `_fallback_vectors`.
+4. Map row indices back to `feature_code_id` via `id_map`.
+
+**Returns**: List of `(feature_code_id, similarity_score)` sorted descending by score. Score range [−1, 1] for cosine.
+
+---
+
+##### `save(path: Path) -> None`
+
+Persist index to disk.
+
+**Files written**:
+- `{path}/index.faiss` — FAISS binary index (if FAISS enabled).
+- `{path}/id_map.pkl` — Pickled ID mapping.
+
+---
+
+##### `load(path: Path) -> None`
+
+Load index from disk.
+
+**Behavior**: Reads `index.faiss` via `faiss.read_index()` and `id_map.pkl` via pickle. If files missing, index starts empty.
+
+---
+
+##### `clear() -> None`
+
+Remove all vectors, resetting index to empty state.
+
 
 **Module**: `cosmic_mycelium.infant.core.layer_5_superbrain`
 
@@ -1045,6 +1390,187 @@ Get memory capacity:
 ##### `as_dict() -> Dict`
 
 Export all configuration as a plain dict (suitable for passing to `SiliconInfant`).
+
+---
+
+## Skills — Plugin System
+
+**Modules**:
+- `cosmic_mycelium.infant.skills.base` — Protocol and base types
+- `cosmic_mycelium.infant.skills.registry` — Global singleton registry
+- `cosmic_mycelium.infant.skills.loader` — Discovery and loading (entry points + built-in)
+- `cosmic_mycelium.infant.skills.lifecycle` — Per-cycle scheduler and resource budgeting
+- `cosmic_mycelium.infant.skills.research` — Example built-in skill (autonomous research loop)
+
+---
+
+### Protocol: `InfantSkill`
+
+```python
+class InfantSkill(Protocol):
+    name: str
+    version: str
+    description: str
+    dependencies: list[str]
+    def initialize(self, context: SkillContext) -> None: ...
+    def can_activate(self, context: SkillContext) -> bool: ...
+    def execute(self, params: dict[str, Any]) -> Any: ...
+    def get_resource_usage(self) -> dict[str, float]: ...
+    def shutdown(self) -> None: ...
+    def get_status(self) -> dict[str, Any]: ...
+```
+
+All concrete skills must implement this interface.
+
+---
+
+### Data Structure: `SkillContext`
+
+```python
+@dataclass
+class SkillContext:
+    infant_id: str
+    cycle_count: int
+    energy_available: float
+    hic_suspended: bool = False
+    timestamp: float = field(default_factory=time.time)
+```
+
+Passed to `initialize()` once and `tick()` each cycle. Skills use this to decide activation and track state.
+
+---
+
+### Exceptions
+
+- `SkillInitializationError` — Raised during registration or initialization failures.
+- `SkillExecutionError` — Raised when a skill's `execute()` encounters an error.
+
+---
+
+### Class: `SkillRegistry`
+
+Global singleton registry managing all skills.
+
+```python
+registry = SkillRegistry()  # always returns the same instance
+```
+
+**Methods**:
+
+| Method | Description |
+|--------|-------------|
+| `register(skill)` | Register a skill instance; raises if name already exists |
+| `unregister(name)` | Remove a skill |
+| `get(name)` | Return skill instance or `None` |
+| `list_all()` | All registered skill instances |
+| `list_enabled(context)` | Skills where `can_activate(context)` is `True` |
+| `topological_sort()` | Dependency-ordered load list; raises `ValueError` on cycles |
+| `validate_dependencies()` | Verify all dependencies are registered; raises if missing |
+| `initialize_all(context)` | Call `initialize()` on each skill in topological order; rolls back on failure |
+| `shutdown_all()` | Call `shutdown()` on all skills in reverse load order |
+| `on(event, callback)` / `off(event, sub_id)` | Subscribe/unsubscribe to lifecycle events |
+
+**Events**: `skill_loaded`, `skill_unloaded`, `skill_executed`.
+
+---
+
+### Class: `SkillLoader`
+
+Discovers and registers skills from entry points (third-party plugins) and built-in packages.
+
+```python
+loader = SkillLoader(registry)  # registry optional; creates new if omitted
+loader.load_all()               # discover built-in + entry points
+```
+
+**Discovery order**:
+1. Built-in: recursively scans `cosmic_mycelium.infant.skills` package.
+2. Entry points: scans `cosmic_mycelium.skills` group (setuptools).
+
+Third-party plugin example (`setup.py`):
+```python
+setup(
+    name="infant-skill-math",
+    entry_points={"cosmic_mycelium.skills": ["math = math_skill:MathSkill"]},
+)
+```
+
+---
+
+### Class: `SkillLifecycleManager`
+
+Schedules skill execution each cycle, enforces energy budgets, and responds to HIC meta-cognitive suspend.
+
+```python
+mgr = SkillLifecycleManager(registry, max_executions_per_cycle=5, energy_budget_ratio=0.1)
+```
+
+**Parameters**:
+- `max_executions_per_cycle` — Hard cap on skill executions per tick (prevent runaway).
+- `energy_budget_ratio` — Maximum fraction of current energy that can be spent in one cycle (default 0.1 → 10%).
+
+**Key methods**:
+- `tick(context) -> list[SkillExecutionRecord]` — Run enabled skills (respecting budget, manual disables). Returns per-skill records.
+- `disable(name)` / `enable(name)` — Manual skill override.
+- `is_enabled(name)` — Check if skill will run.
+- `on_hic_suspend()` — Disable all non-core skills (`energy_monitor`, `physical_anchor` remain).
+- `on_hic_resume()` — Re-enable all skills.
+- `get_stats()` — Monitoring: total executions, error rate, disabled list, etc.
+
+**Energy budgeting**: Before executing each skill, the manager fetches `skill.get_resource_usage()["energy_cost"]` and checks prospective `spent_energy + cost` against `energy_available * energy_budget_ratio`. Skills are skipped if they would exceed budget.
+
+---
+
+### Data Structure: `SkillExecutionRecord`
+
+```python
+@dataclass
+class SkillExecutionRecord:
+    skill_name: str
+    params: dict
+    start_time: float
+    end_time: float = 0.0
+    success: bool = False
+    error: str | None = None
+    energy_cost: float = 0.0
+    result: Any = None
+```
+
+Populated by `SkillLifecycleManager` for every execution; stored in `execution_history` (LRU, last 1000).
+
+---
+
+### Built-in Skill: `ResearchSkill`
+
+**Module**: `cosmic_mycelium.infant.skills.research`
+
+Wraps Epic 1 components (QuestionGenerator, ExperimentDesigner, KnowledgeStore) as a pluggable skill.
+
+```python
+ResearchSkill(knowledge_store: KnowledgeStore | None = None)
+```
+
+**Activation conditions** (`can_activate`):
+- Skill initialized and `knowledge_store` injected
+- Current energy ≥ 50
+- At least 10 cycles since last execution (cooldown)
+- HIC not suspended (handled by lifecycle manager)
+
+**Execute parameters**:
+- `num_questions` (int, default 1) — How many questions to generate.
+- `recency_days` (float, default 30.0) — Knowledge window.
+- `force_bootstrap` (bool, default False) — Run self-test even if knowledge base populated.
+
+**Behavior**:
+- If knowledge store empty or `force_bootstrap=True`: runs a fixed bootstrap experiment ("调整呼吸节律对能量恢复有何影响？").
+- Otherwise: generates a question, designs an experiment, executes via `knowledge_store.execute_experiment`, records result.
+
+**Resource usage**:
+- Energy cost: `5.0`
+- Duration: `0.1s`
+- Memory: `10MB`
+
+**Status fields**: `name`, `version`, `initialized`, `execution_count`, `last_execution`, `knowledge_entries`.
 
 ---
 
