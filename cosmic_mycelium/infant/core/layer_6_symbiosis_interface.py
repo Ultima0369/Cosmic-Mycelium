@@ -169,7 +169,7 @@ class SymbiosisInterface:
 				first_seen=now,
 				last_seen=now,
 				interaction_count=1,
-				status=PartnershipStatus.PROSPECT,
+				status=PartnershipStatus.ACTIVE,
 				capabilities=list(capability.keys()) if capability else [],
 			)
 

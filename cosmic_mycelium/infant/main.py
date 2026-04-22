@@ -24,10 +24,12 @@ from collections import deque
 
 from cosmic_mycelium.infant.hic import HIC, HICConfig, BreathState
 from cosmic_mycelium.infant.engines.engine_sympnet import SympNetEngine
+from cosmic_mycelium.infant.core.layer_2_semantic_mapper import SemanticMapper
 from cosmic_mycelium.infant.core.layer_3_slime_explorer import SlimeExplorer
 from cosmic_mycelium.infant.core.layer_4_myelination_memory import MyelinationMemory
 from cosmic_mycelium.infant.core.layer_5_superbrain import SuperBrain
 from cosmic_mycelium.infant.core.layer_6_symbiosis_interface import SymbiosisInterface, InteractionMode
+from cosmic_mycelium.infant.sensors import SensorArray, SensorType
 from cosmic_mycelium.common.data_packet import CosmicPacket
 from cosmic_mycelium.common.physical_fingerprint import PhysicalFingerprint
 
@@ -61,13 +63,24 @@ class SiliconInfant:
             name=f"hic-{infant_id}",
         )
         self.sympnet = SympNetEngine()
-        self.explorer = SlimeExplorer(num_spores=10)
+        # Layer 2: Semantic Mapper — maps physical → semantic concepts
+        embedding_dim = self.config.get("embedding_dim", 16)
+        self.semantic_mapper = SemanticMapper(embedding_dim=embedding_dim)
+        self.explorer = SlimeExplorer(num_spores=self.config.get("num_spores", 10))
         self.memory = MyelinationMemory()
         self.brain = SuperBrain()
         self.interface = SymbiosisInterface(infant_id)
 
-        # Physical state (for sympnet)
+        # Sensor array — real-world multi-modal perception
+        self.sensors = SensorArray()
+
+        # Physical state (derived from sensors, cached)
         self.state = {"q": 1.0, "p": 0.0}
+        self._last_perception: Optional[Dict] = None
+        self._latest_embedding: Optional[object] = None  # np.ndarray from SemanticMapper
+
+        # Network reference (set by MyceliumNetwork.join)
+        self.network: Optional[Any] = None
 
         # Messaging
         self.inbox = []
@@ -101,17 +114,117 @@ class SiliconInfant:
 
     def perceive(self) -> Dict:
         """
-        Sense the world.
-        In real deployment, this reads actual sensors / APIs.
+        Sense the world via multi-modal sensor array.
+        Reads vibration, temperature, spectrum and maps to physical state (q, p).
+        Also maps physical state to semantic concept (L2).
         """
-        # Simulate small physical fluctuations
-        self.state["q"] += random.uniform(-0.01, 0.01)
-        self.state["p"] += random.uniform(-0.01, 0.01)
-        return {
+        # Read all sensors
+        sensor_data = self.sensors.read_all()
+
+        # Map multi-modal sensors → physical state (q, p)
+        vibration = sensor_data["vibration"]
+        temperature = sensor_data["temperature"]
+        spectrum = sensor_data["spectrum_power"]
+
+        # Update physical state with bounded random walk
+        self.state["p"] = max(-1.0, min(1.0, self.state["p"] + vibration * 0.01 + random.uniform(-0.005, 0.005)))
+        self.state["q"] = max(-1.0, min(1.0, self.state["q"] + (temperature - 22.0) * 0.001 + spectrum * 0.005))
+
+        # L2: Map physical state to semantic concept
+        physical_state = self.state.copy()
+        concept = self.semantic_mapper.map(physical_state)
+        self._latest_embedding = concept.feature_vector.copy()
+
+        # Attach raw sensor data and semantic embedding to perception
+        perception = {
             "timestamp": time.time(),
-            "physical": self.state.copy(),
+            "physical": physical_state,
+            "sensors": sensor_data,
+            "semantic_embedding": self._latest_embedding,
             "external": {},
         }
+        self._last_perception = perception
+        return perception
+
+    def disambiguate_intent(self, perception: Dict, confidence: float) -> Optional[str]:
+        """
+        Intent disambiguation: when confidence is low, generate clarification question.
+
+        Returns:
+            Clarification question string, or None if confidence is adequate.
+        """
+        if confidence >= 0.5:
+            return None  # No ambiguity
+
+        # Analyze sensor pattern to infer likely cause of low confidence
+        sensors = perception.get("sensors", {})
+        vibration = sensors.get("vibration", 0)
+        temperature = sensors.get("temperature", 22.0)
+        spectrum = sensors.get("spectrum_power", 0)
+
+        # Heuristic: match low-confidence patterns to question templates
+        if vibration > 0.2:
+            return "Is that vibration from machinery or environmental movement?"
+        if temperature > 28.0 or temperature < 16.0:
+            return f"Temperature is {temperature:.1f}°C — is that expected?"
+        if spectrum < 0.2:
+            return "Light level very low — should I wait for more illumination?"
+        if spectrum > 2.0:
+            return "Very bright environment — requires adaptation?"
+
+        # Generic fallback
+        return "Perception unclear — what should I focus on?"
+
+    def act(
+        self,
+        perception: Dict,
+        predicted: Dict,
+        confidence: float,
+    ) -> Optional[CosmicPacket]:
+        """
+        Decide and act.
+        This is the "conscious choice" point.
+        """
+        # Check suspend conditions
+        if confidence < 0.3 or self.hic.energy < 20:
+            return self.hic.get_suspend_packet(self.infant_id)
+
+        # Intent disambiguation: if low confidence, emit a clarification request
+        question = self.disambiguate_intent(perception, confidence)
+        if question:
+            # Enter low-confidence SUSPEND but with a clarifying question
+            self._log(f"Clarification needed: {question}", "WARN")
+            # Emit a query packet to potential partners (suspended until answered)
+            return CosmicPacket(
+                timestamp=time.time(),
+                source_id=self.infant_id,
+                destination_id="broadcast",
+                value_payload={
+                    "action": "query",
+                    "question": question,
+                    "context": perception.get("sensors", {}),
+                },
+            )
+
+        # Plan using slime explorer
+        plan, plan_conf = self.explorer.plan(perception, "stable_orbit")
+        if plan is None:
+            return self.hic.get_suspend_packet(self.infant_id)
+
+        # Record successful path
+        self.memory.reinforce(plan["path"], success=True)
+
+        # Build packet — action broadcast to network
+        return CosmicPacket(
+            timestamp=time.time(),
+            source_id=self.infant_id,
+            value_payload={
+                "action": "plan_execution",
+                "plan": plan,
+                "confidence": plan_conf,
+                "sensor_snapshot": perception.get("sensors", {}),
+            },
+        )
 
     def predict(self, perception: Dict) -> Tuple[Dict, float]:
         """Predict next state using SympNet."""
@@ -205,7 +318,7 @@ class SiliconInfant:
 
         if state == BreathState.SUSPEND:
             self._log("In suspend state — recovering", "WARN")
-            time.sleep(0.1)
+            time.sleep(self.hic.config.suspend_duration)
             return self.hic.get_suspend_packet(self.infant_id)
 
         elif state == BreathState.CONTRACT:
@@ -272,3 +385,28 @@ class SiliconInfant:
             "interface": self.interface.get_status(),
             "log_tail": list(self.log)[-5:],
         }
+
+    def get_embedding(self) -> Optional[object]:
+        """Return latest semantic embedding (for resonance)."""
+        return self._latest_embedding
+
+    def get_physical_fingerprint(self) -> str:
+        """Generate physical fingerprint from current physical state."""
+        return PhysicalFingerprint.generate(self.state)
+
+    def apply_resonance_bonus(self, partner_id: str, similarity: float) -> None:
+        """
+        Apply 1+1>2 energy bonus from high-resonance with partner.
+
+        Args:
+            partner_id: The partner infant ID.
+            similarity: Cosine similarity [0,1] of semantic embeddings.
+        """
+        if similarity < 0.6:
+            return  # Below resonance threshold
+        # Synergy bonus: max 0.2 energy, scaled by similarity above threshold
+        bonus = min(0.2, (similarity - 0.6) * 0.5)
+        self.hic._energy = min(self.hic.config.energy_max, self.hic._energy + bonus)
+        # Record positive interaction with partner
+        self.interface.perceive_partner(partner_id, trust=0.6, mode=InteractionMode.COLLABORATE)
+        self._log(f"Resonance bonus +{bonus:.3f} with {partner_id} (sim={similarity:.2f})")

@@ -246,7 +246,7 @@ class TestInfantRunnerSignalHandling:
             mock_event = MagicMock()
             mock_event.wait = AsyncMock()
             MockEvent.return_value = mock_event
-            with patch('asyncio.get_event_loop') as mock_loop:
+            with patch('asyncio.get_running_loop') as mock_loop:
                 mock_loop.return_value.add_signal_handler = MagicMock()
                 # Start wait in background
                 task = asyncio.create_task(runner._wait_for_shutdown())

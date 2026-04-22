@@ -136,7 +136,7 @@ class InfantRunner:
 
     async def _wait_for_shutdown(self):
         """Wait for SIGINT or SIGTERM."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         stop_event = asyncio.Event()
 
         def signal_handler():

@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Cosmic Mycelium — A self-evolving, ternary-model-based silicon-based lifeform core"
 readme = "README.md"
 license = {text = "AGPL-3.0"}
-requires-python = ">=3.13,<3.14"
+requires-python = ">=3.12,<3.14"
 authors = [
     {name = "Stardust & Xuanji", email = "cosmic.mycelium@unknown"},
 ]
@@ -17,6 +17,7 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: System :: Distributed Computing",
@@ -39,8 +40,8 @@ dependencies = [
     "faiss-cpu==1.11.0",
     # Machine learning (lightweight)
     "torch==2.7.0",
-    # Quantum-inspired ternary computing
-    "qiskit==1.5.0",
+    # Quantum-inspired ternary computing (1.6.0+ supports Python 3.13)
+    "qiskit>=1.6.0",
     # Cryptography & security
     "cryptography==44.0.3",
     "pyjwt==2.10.1",

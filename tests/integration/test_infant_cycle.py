@@ -6,6 +6,7 @@ Tests the full infant lifecycle: perceive → predict → act → diffuse cycle.
 from __future__ import annotations
 
 import time
+import tracemalloc
 from unittest.mock import patch
 import pytest
 from cosmic_mycelium.infant.main import SiliconInfant
@@ -151,3 +152,67 @@ class TestInfantLifecycle:
         time.sleep(0.1)
         status2 = infant.get_status()
         assert status2["uptime"] > status1["uptime"]
+
+    def test_long_running_stability_1000_cycles(self):
+        """Infant can complete many breath cycles without crash or state corruption."""
+        infant = SiliconInfant("stability-test")
+        # Use accelerated HIC config for faster cycles
+        infant.hic.config.contract_duration = 0.001
+        infant.hic.config.diffuse_duration = 0.001
+        infant.hic.config.suspend_duration = 0.001
+        # Run many cycles; sleep calls are short so this completes quickly
+        infant.run(max_cycles=1000)
+        # If we reach here, no crash occurred
+        assert infant.hic.total_cycles > 500  # ~1 cycle per 2 iterations
+        assert infant.hic.energy > 0
+        # State should be finite and reasonable
+        assert abs(infant.state["q"]) <= 1.0
+        assert abs(infant.state["p"]) <= 1.0
+
+    def test_memory_no_leak_over_cycles(self):
+        """Memory usage remains bounded over many breath cycles."""
+        infant = SiliconInfant("memory-test")
+        tracemalloc.start()
+        # Capture baseline before many cycles
+        baseline = tracemalloc.take_snapshot()
+        # Run 500 cycles with sleep mocked to avoid wall-clock delay
+        with patch('time.sleep', return_value=None):
+            infant.run(max_cycles=500)
+        # Take another snapshot
+        after = tracemalloc.take_snapshot()
+        tracemalloc.stop()
+        # Compare memory stats — allow some growth but not unbounded
+        stats = after.compare_to(baseline, 'lineno')
+        total_growth = sum(stat.size_diff for stat in stats)
+        # Allow up to 10MB growth over 500 cycles (generous)
+        assert total_growth < 10 * 1024 * 1024, f"Memory grew by {total_growth} bytes"
+
+    def test_performance_cycle_rate(self):
+        """Average cycle time should be reasonable (< 100ms even with real sleep)."""
+        infant = SiliconInfant("perf-test")
+        # Use faster config for test
+        infant.hic.config.diffuse_duration = 0.001
+        infant.hic.config.suspend_duration = 0.001
+        start = time.monotonic()
+        cycles = 50
+        infant.run(max_cycles=cycles)
+        elapsed = time.monotonic() - start
+        avg_cycle_time = elapsed / cycles
+        # Should be well under 100ms per cycle (with accelerated config, much lower)
+        assert avg_cycle_time < 0.1
+
+    def test_sensors_integration_does_not_crash(self):
+        """Sensor readings are successfully integrated into perception every cycle."""
+        infant = SiliconInfant("sensor-integration-test")
+        # Run a few cycles and verify perception contains sensor data
+        for _ in range(10):
+            perception = infant.perceive()
+            assert "sensors" in perception
+            sensor_data = perception["sensors"]
+            assert "vibration" in sensor_data
+            assert "temperature" in sensor_data
+            assert "spectrum_power" in sensor_data
+            # Values should be physically plausible
+            assert -1.0 <= perception["physical"]["q"] <= 1.0
+            assert -1.0 <= perception["physical"]["p"] <= 1.0
+
