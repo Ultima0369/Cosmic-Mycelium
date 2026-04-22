@@ -69,6 +69,8 @@ similarity = mapper.similarity(concept_a_id, concept_b_id)  # 余弦相似度 [-
 - 特征向量维度 = `embedding_dim`
 - 连续映射时 `frequency` 递增
 
+**状态**：✓ 14 个单元测试通过，88% 覆盖率
+
 **关键设计决策**：
 - **不归一化**：保留物理值的绝对幅度信息（幅度本身就是语义）
 - **固定 EMA 系数**：0.9/0.1，非可配置（保持学习率一致性）
@@ -124,6 +126,8 @@ explorer.reinforce_path(path, delta=0.1, decay=1.0)
 - 相同 RNG seed 产生完全相同的孢子批次（确定性）
 - 收敛后最佳路径信息素上升，蒸发后弱路径消失
 - `quality ∈ [0.0, 1.0+]`
+
+**状态**：✓ 26 个单元测试通过，92% 覆盖率
 
 **关键设计决策**：
 - **Softmax 温度**：使用 `attention_temp=1.0`（默认），可调
@@ -183,6 +187,8 @@ coverage = memory.get_coverage_ratio()               # [0, 1] 覆盖度
 - 特征码碰撞率 < 0.01%（SHA256 保证）
 - 覆盖度随时间递增（学习过程）
 - `forget()` 后弱路径消失，强路径保留
+
+**状态**：✓ 25 个单元测试通过，97% 覆盖率
 
 **关键设计决策**：
 - **衰减触发**：仅 `last_accessed < now - 1h` 的路径衰减（活跃路径免疫）
@@ -247,6 +253,8 @@ status = brain.get_status() -> Dict                 # 状态快照
 - `meta` 脑区工作记忆记录每次广播内容
 - 衰减后所有脑区激活按比例下降
 - 健康监控能检测停滞脑区（连续无激活）
+
+**状态**：✓ 20 个单元测试通过，94% 覆盖率
 
 **关键设计决策**：
 - **向后兼容**：`competition_enabled=False` 确保 legacy 测试无需修改
@@ -344,6 +352,8 @@ status = interface.get_status()
 - 24h 无交互后信任开始衰减
 - 协商过期自动清理（`expire_negotiations()`）
 - 1+1>2 评估：`outcome_quality > 0.5` 时产生正收益
+
+**状态**：✓ 71 个单元测试通过，99% 覆盖率
 
 **关键设计决策**：
 - **双模式 API**：`accept_proposal` 同时支持 negotiation_id（正式协商）和 partner_id（legacy 直接信任操作），确保向后兼容

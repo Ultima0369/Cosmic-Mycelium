@@ -81,29 +81,42 @@ class HIC:
 
     # ─── Internal helpers (all assume lock already held) ─────────────────────
     def _tick(self, now: float) -> None:
-        """Advance the breath cycle one step. Caller MUST hold _lock."""
-        if self._state == BreathState.CONTRACT:
-            if now - self._last_switch >= self.config.contract_duration:
+        """
+        Advance breath cycle, handling multiple transitions if time has jumped.
+        Loops until no more transitions are due, guaranteeing correct energy
+        accounting regardless of call interval.
+        Caller MUST hold _lock.
+        """
+        while True:
+            if self._state == BreathState.CONTRACT:
+                if now - self._last_switch < self.config.contract_duration:
+                    break
+                # CONTRACT → DIFFUSE
                 self._state = BreathState.DIFFUSE
-                self._last_switch = now
+                self._last_switch += self.config.contract_duration
                 self.total_cycles += 1
-                self._energy -= 0.1  # Work consumes energy
+                self._energy -= 0.1
+                if self._energy < 20.0:
+                    self._enter_suspend(now)
+                    break
 
-        elif self._state == BreathState.DIFFUSE:
-            if now - self._last_switch >= self.config.diffuse_duration:
+            elif self._state == BreathState.DIFFUSE:
+                if now - self._last_switch < self.config.diffuse_duration:
+                    break
+                # DIFFUSE → CONTRACT
                 self._state = BreathState.CONTRACT
-                self._last_switch = now
+                self._last_switch += self.config.diffuse_duration
                 self._energy = min(
                     self.config.energy_max,
                     self._energy + self.config.recovery_rate,
                 )
 
-        elif self._state == BreathState.SUSPEND:
-            if now >= self._suspend_end_time:
-                # Recovery complete — restore to configured recovery_energy (not additive)
-                self._state = BreathState.CONTRACT
-                self._last_switch = now
-                self._energy = self.config.recovery_energy
+            else:  # SUSPEND
+                if now >= self._suspend_end_time:
+                    self._state = BreathState.CONTRACT
+                    self._last_switch = now
+                    self._energy = self.config.recovery_energy
+                break
 
     def _enter_suspend(self, now: float) -> None:
         """Transition into SUSPEND state. Caller MUST hold _lock."""

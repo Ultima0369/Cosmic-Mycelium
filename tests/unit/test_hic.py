@@ -89,7 +89,9 @@ class TestBreathCycle:
         )
         h = HIC(config=config)
         h._state = BreathState.DIFFUSE
-        h._last_switch = mock_time.now() - 0.003
+        # Set elapsed time to just enough for one D->C transition but not a second C->D:
+        # Need diffuse_duration <= elapsed < diffuse_duration + contract_duration
+        h._last_switch = mock_time.now() - 0.0015
 
         h.update_breath(confidence=0.7, work_done=False)
 
@@ -115,7 +117,8 @@ class TestBreathCycle:
         )
         h = HIC(config=config)
         h._state = BreathState.DIFFUSE
-        h._last_switch = mock_time.now() - 0.003
+        # Elapsed time: enough for one D->C but not a subsequent C->D
+        h._last_switch = mock_time.now() - 0.0015
         h._energy = 50.0
         start_energy = h.energy
 
