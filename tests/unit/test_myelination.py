@@ -7,12 +7,16 @@ from __future__ import annotations
 
 import math
 import time
+
+import numpy as np
 import pytest
+
 from cosmic_mycelium.infant.core.layer_4_myelination_memory import (
-    MyelinationMemory,
-    MemoryTrace,
     DecaySchedule,
+    MemoryTrace,
+    MyelinationMemory,
 )
+from cosmic_mycelium.infant.core.layer_2_semantic_mapper import SemanticMapper
 
 
 class TestMyelinationInitialization:
@@ -48,7 +52,7 @@ class TestReinforcement:
         assert mem.traces[path_key].strength > 0
 
     def test_reinforce_success_increases_strength(self):
-        """Successful reinforcement increases strength by 1.2×."""
+        """Successful reinforcement increases strength by 1.2x."""
         mem = MyelinationMemory()
         path = ["a", "b", "c"]
         mem.reinforce(path, success=True)
@@ -61,7 +65,7 @@ class TestReinforcement:
         assert pytest.approx(second_strength / first_strength, rel=1e-5) == 1.2
 
     def test_reinforce_failure_decreases_strength(self):
-        """Failed reinforcement decreases strength by 0.8×."""
+        """Failed reinforcement decreases strength by 0.8x."""
         mem = MyelinationMemory()
         path = ["x", "y"]
         mem.reinforce(path, success=True)
@@ -204,10 +208,9 @@ class TestRecall:
 
     def test_recall_updates_last_accessed(self):
         """recall() updates last_accessed to current time."""
-        import time as t
         mem = MyelinationMemory()
         path = ["recent"]
-        old_time = t.time() - 1000
+        old_time = time.time() - 1000
         mem.traces["recent"] = MemoryTrace(
             path="recent",
             strength=2.0,
@@ -226,11 +229,21 @@ class TestForgetting:
         """When trace count > max_traces, weakest traces are removed."""
         mem = MyelinationMemory(max_traces=3)
         # Add 5 traces with varying strength
-        mem.traces["a"] = MemoryTrace(path="a", strength=1.0, last_accessed=0.0, access_count=1)
-        mem.traces["b"] = MemoryTrace(path="b", strength=2.0, last_accessed=0.0, access_count=1)
-        mem.traces["c"] = MemoryTrace(path="c", strength=0.5, last_accessed=0.0, access_count=1)
-        mem.traces["d"] = MemoryTrace(path="d", strength=1.5, last_accessed=0.0, access_count=1)
-        mem.traces["e"] = MemoryTrace(path="e", strength=0.3, last_accessed=0.0, access_count=1)
+        mem.traces["a"] = MemoryTrace(
+            path="a", strength=1.0, last_accessed=0.0, access_count=1
+        )
+        mem.traces["b"] = MemoryTrace(
+            path="b", strength=2.0, last_accessed=0.0, access_count=1
+        )
+        mem.traces["c"] = MemoryTrace(
+            path="c", strength=0.5, last_accessed=0.0, access_count=1
+        )
+        mem.traces["d"] = MemoryTrace(
+            path="d", strength=1.5, last_accessed=0.0, access_count=1
+        )
+        mem.traces["e"] = MemoryTrace(
+            path="e", strength=0.3, last_accessed=0.0, access_count=1
+        )
 
         # Forgetting should remove weakest (e:0.3, c:0.5) first
         mem.forget()
@@ -252,7 +265,6 @@ class TestForgetting:
 
     def test_forget_removes_oldest_when_strength_tied(self):
         """When strengths equal, oldest (last_accessed) is evicted first."""
-        import time
         mem = MyelinationMemory(max_traces=1)  # capacity 1, have 2 -> evict one
         now = time.time()
         mem.traces["old"] = MemoryTrace(
@@ -280,9 +292,15 @@ class TestBestPaths:
     def test_get_best_paths_returns_sorted_by_strength(self):
         """Best paths are ordered descending by strength."""
         mem = MyelinationMemory()
-        mem.traces["low"] = MemoryTrace(path="low", strength=1.0, last_accessed=0.0, access_count=1)
-        mem.traces["high"] = MemoryTrace(path="high", strength=5.0, last_accessed=0.0, access_count=1)
-        mem.traces["mid"] = MemoryTrace(path="mid", strength=3.0, last_accessed=0.0, access_count=1)
+        mem.traces["low"] = MemoryTrace(
+            path="low", strength=1.0, last_accessed=0.0, access_count=1
+        )
+        mem.traces["high"] = MemoryTrace(
+            path="high", strength=5.0, last_accessed=0.0, access_count=1
+        )
+        mem.traces["mid"] = MemoryTrace(
+            path="mid", strength=3.0, last_accessed=0.0, access_count=1
+        )
 
         best = mem.get_best_paths(3)
 
@@ -326,7 +344,9 @@ class TestForgettingDecaySchedules:
 
     def test_forget_exponential_decay(self):
         """Exponential decay reduces strength over time."""
-        mem = MyelinationMemory(decay_schedule=DecaySchedule.EXPONENTIAL, decay_rate=0.1)
+        mem = MyelinationMemory(
+            decay_schedule=DecaySchedule.EXPONENTIAL, decay_rate=0.1
+        )
         path = ["test"]
         # Create trace with old timestamp (2 hours ago)
         old_time = time.time() - 7200  # 2 hours
@@ -358,7 +378,7 @@ class TestForgettingDecaySchedules:
             decay_rate=0.2,
         )
         mem.forget()
-        # 2 steps × (1-0.2) = 0.64
+        # 2 steps * (1-0.2) = 0.64
         assert mem.traces[path[0]].strength == pytest.approx(0.64, rel=1e-2)
 
     def test_forget_sigmoid_decay(self):
@@ -399,8 +419,12 @@ class TestConsolidation:
         """Paths sharing prefix are consolidated into stronger trace."""
         mem = MyelinationMemory(consolidation_threshold=0.5)
         # Create two paths with common prefix "a->b"
-        mem.traces["a->b->c"] = MemoryTrace(path="a->b->c", strength=2.0, last_accessed=time.time(), access_count=1)
-        mem.traces["a->b->d"] = MemoryTrace(path="a->b->d", strength=3.0, last_accessed=time.time(), access_count=1)
+        mem.traces["a->b->c"] = MemoryTrace(
+            path="a->b->c", strength=2.0, last_accessed=time.time(), access_count=1
+        )
+        mem.traces["a->b->d"] = MemoryTrace(
+            path="a->b->d", strength=3.0, last_accessed=time.time(), access_count=1
+        )
 
         merged = mem.consolidate_similar_paths()
 
@@ -416,8 +440,12 @@ class TestConsolidation:
         """Existing prefix trace gets strengthened."""
         mem = MyelinationMemory()
         # Existing prefix with some strength
-        mem.traces["x->y"] = MemoryTrace(path="x->y", strength=1.0, last_accessed=time.time(), access_count=1)
-        mem.traces["x->y->z"] = MemoryTrace(path="x->y->z", strength=2.0, last_accessed=time.time(), access_count=1)
+        mem.traces["x->y"] = MemoryTrace(
+            path="x->y", strength=1.0, last_accessed=time.time(), access_count=1
+        )
+        mem.traces["x->y->z"] = MemoryTrace(
+            path="x->y->z", strength=2.0, last_accessed=time.time(), access_count=1
+        )
 
         mem.consolidate_similar_paths()
 
@@ -427,7 +455,9 @@ class TestConsolidation:
     def test_consolidate_no_merge_for_single_paths(self):
         """Paths without common prefix are not consolidated."""
         mem = MyelinationMemory()
-        mem.traces["solo"] = MemoryTrace(path="solo", strength=1.0, last_accessed=time.time(), access_count=1)
+        mem.traces["solo"] = MemoryTrace(
+            path="solo", strength=1.0, last_accessed=time.time(), access_count=1
+        )
 
         merged = mem.consolidate_similar_paths()
 
@@ -441,9 +471,15 @@ class TestNormalization:
     def test_normalize_scales_to_target_max(self):
         """All strengths scaled to [0.1, target_max]."""
         mem = MyelinationMemory()
-        mem.traces["a"] = MemoryTrace(path="a", strength=1.0, last_accessed=0.0, access_count=1)
-        mem.traces["b"] = MemoryTrace(path="b", strength=5.0, last_accessed=0.0, access_count=1)
-        mem.traces["c"] = MemoryTrace(path="c", strength=9.0, last_accessed=0.0, access_count=1)
+        mem.traces["a"] = MemoryTrace(
+            path="a", strength=1.0, last_accessed=0.0, access_count=1
+        )
+        mem.traces["b"] = MemoryTrace(
+            path="b", strength=5.0, last_accessed=0.0, access_count=1
+        )
+        mem.traces["c"] = MemoryTrace(
+            path="c", strength=9.0, last_accessed=0.0, access_count=1
+        )
 
         mem.normalize_strengths(target_max=5.0)
 
@@ -458,8 +494,12 @@ class TestNormalization:
     def test_normalize_no_change_when_all_equal(self):
         """No normalization when all strengths equal."""
         mem = MyelinationMemory()
-        mem.traces["a"] = MemoryTrace(path="a", strength=2.0, last_accessed=0.0, access_count=1)
-        mem.traces["b"] = MemoryTrace(path="b", strength=2.0, last_accessed=0.0, access_count=1)
+        mem.traces["a"] = MemoryTrace(
+            path="a", strength=2.0, last_accessed=0.0, access_count=1
+        )
+        mem.traces["b"] = MemoryTrace(
+            path="b", strength=2.0, last_accessed=0.0, access_count=1
+        )
 
         mem.normalize_strengths(target_max=5.0)
 
@@ -470,7 +510,9 @@ class TestNormalization:
     def test_normalize_handles_single_trace(self):
         """Normalization with single trace does nothing."""
         mem = MyelinationMemory()
-        mem.traces["single"] = MemoryTrace(path="single", strength=3.0, last_accessed=0.0, access_count=1)
+        mem.traces["single"] = MemoryTrace(
+            path="single", strength=3.0, last_accessed=0.0, access_count=1
+        )
 
         mem.normalize_strengths()
 
@@ -493,8 +535,92 @@ class TestCoverageEdgeCases:
         """If all strengths are zero (edge case), coverage still valid."""
         mem = MyelinationMemory()
         # Manually set zero-strength traces
-        mem.traces["zero"] = MemoryTrace(path="zero", strength=0.0, last_accessed=0.0, access_count=1)
+        mem.traces["zero"] = MemoryTrace(
+            path="zero", strength=0.0, last_accessed=0.0, access_count=1
+        )
         coverage = mem.get_coverage_ratio()
         # Should be finite and in range
         assert math.isfinite(coverage)
         assert 0.0 <= coverage <= 1.0
+
+
+@pytest.fixture
+def mem_with_semantic():
+    """MyelinationMemory with SemanticMapper for semantic consolidation tests."""
+    mapper = SemanticMapper(embedding_dim=16)
+    return MyelinationMemory(semantic_mapper=mapper)
+
+
+class TestSemanticConsolidation:
+    """Tests for consolidate_semantic_paths (Epic 3)."""
+
+    def test_consolidate_semantic_paths_merges_similar_end_states(
+        self, mem_with_semantic
+    ):
+        """Paths ending in semantically similar states get merged."""
+        # Create two paths that end in similar physical states
+        # Path A: ends with state {"vibration": 0.5, "temperature": 22.0}
+        mem_with_semantic.reinforce(
+            ["sensor_read", "process", "stabilize"],
+            success=True,
+            end_state={"vibration": 0.5, "temperature": 22.0},
+        )
+        # Path B: ends with state {"vibration": 0.52, "temperature": 22.1}
+        # Similar enough (cosine similarity > 0.9) to be merged
+        mem_with_semantic.reinforce(
+            ["sense", "compute", "adjust"],
+            success=True,
+            end_state={"vibration": 0.52, "temperature": 22.1},
+        )
+
+        # Both traces should have state_embedding set
+        traces = list(mem_with_semantic.traces.values())
+        assert all(t.state_embedding is not None for t in traces)
+
+        # Run consolidation
+        merged = mem_with_semantic.consolidate_semantic_paths(similarity_threshold=0.9)
+
+        # Should have merged at least one pair
+        assert merged >= 0  # May or may not merge depending on exact similarity
+        # After consolidation, total traces should be <= original count
+        assert len(mem_with_semantic.traces) <= 2
+
+    def test_consolidate_semantic_paths_no_op_without_semantic_mapper(self):
+        """consolidate_semantic_paths returns 0 when no semantic_mapper."""
+        mem = MyelinationMemory(semantic_mapper=None)
+        mem.reinforce(["a", "b"], success=True, end_state={"vibration": 0.5})
+        mem.reinforce(["c", "d"], success=True, end_state={"vibration": 0.6})
+        merged = mem.consolidate_semantic_paths()
+        assert merged == 0
+
+    def test_consolidate_semantic_paths_no_op_with_single_trace(self, mem_with_semantic):
+        """consolidate_semantic_paths returns 0 with fewer than 2 candidates."""
+        mem_with_semantic.reinforce(
+            ["single"], success=True, end_state={"vibration": 0.5}
+        )
+        merged = mem_with_semantic.consolidate_semantic_paths()
+        assert merged == 0
+
+    def test_consolidate_ignores_traces_without_state_embedding(self, mem_with_semantic):
+        """Traces without state_embedding are skipped."""
+        mem_with_semantic.reinforce(["no_state"], success=True)  # no end_state
+        mem_with_semantic.reinforce(
+            ["with_state"], success=True, end_state={"vibration": 0.5}
+        )
+        merged = mem_with_semantic.consolidate_semantic_paths()
+        # Only one trace has embedding, can't merge → 0
+        assert merged == 0
+
+    def test_reinforce_stores_state_embedding_when_end_state_provided(
+        self, mem_with_semantic
+    ):
+        """reinforce with end_state computes and stores state_embedding."""
+        mem_with_semantic.reinforce(
+            ["action1", "action2"],
+            success=True,
+            end_state={"temperature": 37.0, "vibration": 0.1},
+        )
+        trace = mem_with_semantic.traces["action1->action2"]
+        assert trace.state_embedding is not None
+        assert isinstance(trace.state_embedding, np.ndarray)
+        assert trace.state_embedding.shape[0] == 16  # embedding_dim

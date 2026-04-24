@@ -40,6 +40,9 @@ dependencies = [
     "faiss-cpu==1.11.0",
     # Machine learning (lightweight)
     "torch==2.7.0",
+    # Liquid Neural Networks (LTC) — Phase 4.2 cross-civilization semantic mapping
+    "ncps>=1.0.0",
+    "tensorflow>=2.16.0",
     # Quantum-inspired ternary computing (1.6.0+ supports Python 3.13)
     "qiskit>=1.6.0",
     # Cryptography & security
@@ -102,7 +105,9 @@ cluster = [
 [project.scripts]
 cosmic-infant = "cosmic_mycelium.scripts.run_infant:main"
 cosmic-cluster = "cosmic_mycelium.scripts.run_cluster:main"
-cosmic-physics = "cosmic_mycelium.tests.physics.benchmark_physics:main"
+cosmic-physics = "cosmic_mycelium.scripts.benchmark_physics:main"
+cosmic-stress = "cosmic_mycelium.scripts.stress_test_physics:main"
+cosmic-scale = "cosmic_mycelium.scripts.scale_test:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["cosmic_mycelium"]
@@ -241,7 +246,7 @@ branch = true
 source = ["cosmic_mycelium"]
 omit = [
     "tests/*",
-    "scripts/*",
+    "cosmic_mycelium/scripts/*",
     "*/__main__.py",
 ]
 

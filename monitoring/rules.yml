@@ -1,0 +1,100 @@
+# Cosmic Mycelium — Anomaly Alert Rules
+# These rules detect abnormal infant behavior and infrastructure issues.
+# Attach to Prometheus via rule_files in prometheus.yml
+
+groups:
+  - name: infant_health
+    rules:
+      # Energy too low for extended period
+      - alert: InfantEnergyCritical
+        expr: hic_energy_total < 15
+        for: 2m
+        labels:
+          severity: critical
+          component: hic
+        annotations:
+          summary: "Infant {{ $labels.infant_id }} energy critically low ({{ $value }})"
+          description: "Energy has been below 15 for >2 minutes. Infant may be suspended."
+
+      # High research error rate
+      - alert: ResearchErrorRateHigh
+        expr: |
+          rate(research_errors_total[5m]) / rate(research_cycles_total[5m]) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          component: research
+        annotations:
+          summary: "Research error rate >50% for {{ $labels.infant_id }}"
+          description: "Research cycles are failing frequently. Check experiment tools."
+
+      # Knowledge growth stalled
+      - alert: KnowledgeGrowthStalled
+        expr: |
+          deriv(knowledge_entries_total[10m]) < 0.1
+        for: 30m
+        labels:
+          severity: warning
+          component: knowledge
+        annotations:
+          summary: "Knowledge store growth stalled for {{ $labels.infant_id }}"
+          description: "Less than 1 new entry per 100 minutes. Infant may need new stimuli."
+
+      # Physics drift exceeding threshold
+      - alert: PhysicsDriftHigh
+        expr: sympnet_energy_drift_ratio > 0.001  # >0.1%
+        for: 5m
+        labels:
+          severity: critical
+          component: physics
+        annotations:
+          summary: "Physics anchor drift high: {{ $value }} for {{ $labels.infant_id }}"
+          description: "SympNet energy drift exceeds 0.1%. Physics consistency compromised."
+
+      # Repeated suspensions (cycle instability)
+      - alert: FrequentSuspensions
+        expr: |
+          increase(hic_suspend_count_total[10m]) > 3
+        for: 10m
+        labels:
+          severity: warning
+          component: hic
+        annotations:
+          summary: "Frequent suspensions for {{ $labels.infant_id }}"
+          description: "Infant entered suspend >3 times in 10 minutes. Check energy/confidence thresholds."
+
+  - name: cluster_health
+    rules:
+      # Cluster node failures
+      - alert: ClusterNodeFailed
+        expr: cluster_nodes_failed > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: cluster
+        annotations:
+          summary: "Cluster node failure detected"
+          description: "{{ $value }} node(s) in failed state."
+
+      # No active nodes
+      - alert: ClusterNoActiveNodes
+        expr: cluster_nodes_active == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: cluster
+        annotations:
+          summary: "Cluster has no active nodes"
+          description: "All nodes are inactive or failed."
+
+      # Packet TTL expiration spike
+      - alert: PacketTTLSpike
+        expr: |
+          rate(cosmic_packet_ttl_expired_total[1m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          component: network
+        annotations:
+          summary: "High packet TTL expiration rate"
+          description: "Packets expiring >10/sec. Network congestion or partition suspected."

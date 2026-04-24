@@ -6,20 +6,25 @@ Tests for K8s liveness/readiness probe endpoints.
 from __future__ import annotations
 
 import json
+from unittest.mock import AsyncMock, patch
+
 import pytest
-from cosmic_mycelium.utils.health import HealthChecker
+
 from cosmic_mycelium.infant.hic import BreathState
-from unittest.mock import patch, MagicMock, AsyncMock
+from cosmic_mycelium.utils.health import HealthChecker
 
 
 class MockInfant:
     """Mock SiliconInfant with hic.energy and hic.breath_state."""
+
     class MockHIC:
         def __init__(self, energy: float, state: BreathState):
             self.energy = energy
             self.breath_state = state
 
-    def __init__(self, energy: float = 100.0, state: BreathState = BreathState.CONTRACT):
+    def __init__(
+        self, energy: float = 100.0, state: BreathState = BreathState.CONTRACT
+    ):
         self.hic = self.MockHIC(energy, state)
 
 
@@ -86,9 +91,13 @@ class TestHealthCheckerLifecycle:
         """start() configures health endpoints on the app."""
         mock_runner = AsyncMock()
 
-        with patch('cosmic_mycelium.utils.health.web.Application') as mock_app_cls, \
-             patch('cosmic_mycelium.utils.health.web.AppRunner', return_value=mock_runner), \
-             patch('cosmic_mycelium.utils.health.web.TCPSite') as mock_site_class:
+        with (
+            patch("cosmic_mycelium.utils.health.web.Application") as mock_app_cls,
+            patch(
+                "cosmic_mycelium.utils.health.web.AppRunner", return_value=mock_runner
+            ),
+            patch("cosmic_mycelium.utils.health.web.TCPSite") as mock_site_class,
+        ):
             mock_site = AsyncMock()
             mock_site_class.return_value = mock_site
 

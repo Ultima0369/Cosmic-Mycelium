@@ -5,15 +5,16 @@ Multi-scale time/space segmentation, feature extraction.
 
 from __future__ import annotations
 
+import time
+from collections import deque
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import List, Dict, Any
-from collections import deque
-import time
+from typing import Any
 
 
 class Scale(IntEnum):
     """Timescale enumeration — the fractal hierarchy of time."""
+
     MILLISECOND = 1
     SECOND = 2
     MINUTE = 3
@@ -25,9 +26,10 @@ class Scale(IntEnum):
 @dataclass
 class Segment:
     """A segmented time/space window."""
+
     start_time: float
     end_time: float
-    features: Dict[str, Any] = field(default_factory=dict)
+    features: dict[str, Any] = field(default_factory=dict)
     scale: Scale = Scale.MILLISECOND
 
 
@@ -56,7 +58,7 @@ class TimescaleSegmenter:
         self.minute_window: deque = deque(maxlen=min_window)
         self.current_scale = Scale.MILLISECOND
 
-    def accumulate(self, data: Dict) -> None:
+    def accumulate(self, data: dict) -> None:
         """
         Add a data point to all windows.
         Escalates scale if current window becomes full.

@@ -13,6 +13,9 @@ Complete reference for the six-layer infant core API.
 - [Common — FeatureManager](#common---featuremanager)
 - [Layer 5 — SuperBrain](#layer-5---superbrain)
 - [Layer 6 — SymbiosisInterface](#layer-6---symbiosisinterface)
+- **Epic 5 — Embodied Cognition**
+  - [SensorimotorContingencyLearner](#sensorimotorcontingencylearner)
+  - [ActivePerceptionGate](#activeperceptiongate)
 - [Core — SiliconInfant](#core---siliconinfant)
 - [Common — ConfigManager](#common---configmanager)
 - [Skills — Plugin System](#skills---plugin-system)
@@ -1242,6 +1245,218 @@ class InteractionMode(Enum):
 
 ---
 
+## Epic 5 — Embodied Cognition
+
+### SensorimotorContingencyLearner
+
+**Module**: `cosmic_mycelium.infant.core.embodied_loop`
+
+Learns action → sensor delta mappings through experience.
+
+#### Class: `SensorimotorContingencyLearner`
+
+```python
+SensorimotorContingencyLearner(max_history_per_action: int = 100)
+```
+
+**Parameters**:
+- `max_history_per_action` — Maximum number of Δ observations to keep per action (sliding window, default 100).
+
+#### Methods
+
+##### `record(action_signature: str, prev_sensors: Dict[str, float], post_sensors: Dict[str, float]) -> None`
+
+Record one (action, before, after) sensor triplet.
+
+Computes `delta = post - prev` for all sensors and updates the moving average for that action.
+
+##### `predict(action_signature: str, current_sensors: Dict[str, float]) -> Dict[str, float] | None`
+
+Predict post-action sensor values given current sensors.
+
+Returns `None` if action is unknown.
+
+##### `get_contingency(action_signature: str) -> Dict[str, float] | None`
+
+Return the average Δ vector for an action (or `None` if unseen).
+
+##### `known_actions() -> List[str]`
+
+List all learned action signatures.
+
+##### `get_confidence(action_signature: str) -> float`
+
+Confidence in [0, 1] based on observation count: `n / (n + 5.0)`.
+
+##### `get_status() -> Dict`
+
+Summary: `{"known_actions": int, "total_observations": int, "actions": List[str]}`.
+
+##### `infer_action(prev_sensors: Dict[str, float], post_sensors: Dict[str, float], k: int = 3) -> List[Tuple[str, float]]`
+
+**Phase 5.3 — Inverse Model.** Given a sensor transition `(prev → post)`, infer which action most likely caused it.
+
+Returns a ranked list of `(action_signature, confidence)` tuples, confidence summing to 1.0. Uses negative MSE + observation-count prior (`log(n)`) before softmax. Unknown transitions yield `[]`.
+
+##### `train_test_split(test_ratio: float = 0.3) -> Tuple[List[Observation], List[Observation]]`
+
+**Phase 5.3 — Cross-validation.** Split all accumulated raw `(prev, post)` observations into train/test lists.
+
+Each list element is an `Observation(prev, post)` dataclass. Split is shuffled with a fixed RNG seed for reproducibility. Total observations = `len(train) + len(test)`.
+
+**Data Class**: `Observation(prev: Dict[str, float], post: Dict[str, float])`
+
+Simple immutable container for a single sensor transition pair, used as the return type of `train_test_split`.
+
+---
+
+### ActivePerceptionGate
+
+**Module**: `cosmic_mycelium.infant.core.active_perception`
+
+Attention gate that selects which sensors to sample based on prediction error history.
+
+#### Class: `ActivePerceptionGate`
+
+```python
+ActivePerceptionGate(
+    initial_interest: float = 0.1,
+    decay_rate: float = 0.9,
+    boost: float = 2.0
+)
+```
+
+**Parameters**:
+- `initial_interest` — Starting score for a brand-new sensor (default 0.1).
+- `decay_rate` — Per-update multiplier for existing scores (default 0.9).
+- `boost` — Error multiplier that boosts interest (default 2.0).
+
+#### Methods
+
+##### `update(prediction_error: Dict[str, float]) -> None`
+
+Update interest scores from a dict of per-sensor prediction errors.
+
+- New sensors: `score = error × boost`
+- Existing sensors: `score = old × decay_rate + error × boost`
+
+##### `decay() -> None`
+
+Multiply all current scores by `decay_rate` (global time-based decay).
+
+##### `get_attention_mask(k: int) -> Set[str]`
+
+Return the set of the `k` highest-scoring sensor names.
+
+##### `should_sample(sensor: str, threshold: float) -> bool`
+
+Return `True` if sensor's score ≥ `threshold`.
+
+##### `reset() -> None`
+
+Clear all interest scores.
+
+---
+
+### SkillAbstractor
+
+**Module**: `cosmic_mycelium.infant.core.skill_abstractor`
+
+Discovers frequent action sequences (n-grams) in the infant's action-delta history and defines them as reusable macro-actions.
+
+#### Class: `SkillAbstractor`
+
+```python
+SkillAbstractor(
+    min_support: int = 5,
+    max_ngram: int = 3,
+    window_size: int = 100,
+)
+```
+
+**Parameters**:
+- `min_support` — Minimum number of occurrences for a pattern to be promoted to a macro (default 5).
+- `max_ngram` — Maximum length of action sequences to consider (default 3).
+- `window_size` — Sliding window size (keeps only recent observations, default 100).
+
+#### Data Class: `MacroDefinition`
+
+```python
+@dataclass(frozen=True)
+class MacroDefinition:
+    signature: str                    # e.g. "macro_A_B"
+    sequence: Tuple[str, ...]         # (action1, action2, ...)
+    avg_delta: Dict[str, float]       # combined average sensor change
+    support: int                      # times this pattern was observed
+```
+
+#### Methods
+
+##### `record(action_sig: str, delta: Dict[str, float]) -> None`
+
+Record one `(action, sensor_delta)` observation.
+
+##### `mine() -> List[MacroDefinition]`
+
+Mine the current history window for new patterns meeting `min_support`. Returns only **newly discovered** macros (idempotent).
+
+##### `get_all_macros() -> List[MacroDefinition]`
+
+Return all macros discovered so far.
+
+##### `get_macro(signature: str) -> MacroDefinition | None`
+
+Look up a macro by its signature.
+
+---
+
+### EmbodiedMetacognition
+
+**Module**: `cosmic_mycelium.infant.core.embodied_metacognition`
+
+Monitors sensorimotor learning progress and toggles the infant between exploration and exploitation modes using hysteresis thresholds.
+
+#### Enum: `MetacognitiveMode`
+
+```python
+class MetacognitiveMode(Enum):
+    EXPLORE = "explore"   # Try new actions, build model
+    EXPLOIT = "exploit"   # Use known high-confidence actions
+```
+
+#### Class: `EmbodiedMetacognition`
+
+```python
+EmbodiedMetacognition(
+    switch_threshold: float = 0.6,
+    revert_threshold: float = 0.4,
+    window_size: int = 5,
+)
+```
+
+**Parameters**:
+- `switch_threshold` — Rolling average confidence above which mode switches from EXPLORE → EXPLOIT (default 0.6).
+- `revert_threshold` — Rolling average confidence below which mode switches from EXPLOIT → EXPLORE (default 0.4). Must be lower than `switch_threshold` to create hysteresis dead-band.
+- `window_size` — Number of recent cycles to average over (default 5). Mode does not switch until at least this many updates have been received.
+
+#### Methods
+
+##### `update(confidence_dict: Dict[str, float]) -> None`
+
+Process a dictionary of action confidences for the current cycle (typically from `SensorimotorContingencyLearner.infer_action()`). The rolling average is updated and mode may switch if threshold is crossed.
+
+##### `get_mode() -> MetacognitiveMode`
+
+Return the current mode (`EXPLORE` or `EXPLOIT`).
+
+##### `get_exploration_factor() -> float`
+
+Return the exploration factor for `SlimeExplorer`:
+- `EXPLORE` → `0.6` (high randomness, broad search)
+- `EXPLOIT` → `0.1` (low randomness, follow known pheromone paths)
+
+---
+
 ## Core — SiliconInfant
 
 **Module**: `cosmic_mycelium.infant.main`
@@ -1263,6 +1478,8 @@ SiliconInfant(
   - `energy_max` (float, default 100.0) — HIC energy ceiling.
   - `contract_duration`, `diffuse_duration`, `suspend_duration` — HIC phase timings.
   - `recovery_energy`, `recovery_rate` — HIC recovery params.
+  - `research_enabled` (bool, default **True**) — Enable autonomous research loop (Epic 1). When enabled, initializes `KnowledgeStore`, `QuestionGenerator`, `ExperimentDesigner` and integrates `ResearchSkill`.
+  - `embedding_dim` (int, default 16) — Semantic embedding dimensionality.
 
 **Initialized subsystems** (all public attributes):
 - `hic: HIC` — Breath-cycle energy manager.
@@ -1272,12 +1489,23 @@ SiliconInfant(
 - `brain: SuperBrain` — Layer 5 global workspace.
 - `interface: SymbiosisInterface` — Layer 6 partnership manager.
 
+**Conditional attributes** (available when `research_enabled=True`):
+- `knowledge_store: KnowledgeStore` — Vector semantic memory for research entries.
+- `question_generator: QuestionGenerator` — Generates research questions from history.
+- `experiment_designer: ExperimentDesigner` — Designs executable experiment plans.
+
 **Other attributes**:
 - `state: Dict[str, float]` — Physical state `{"q": ..., "p": ...}` for sympnet.
 - `inbox: List[CosmicPacket]` — Incoming message queue.
 - `outbox: List[CosmicPacket]` — Outgoing message queue.
 - `log: deque` — Rolling log of structured events (maxlen=1000).
 - `start_time: float` — Unix timestamp of initialization.
+
+**Phase 5.1 — Embodied Cognition attributes** (when integrated):
+- `_sensorimotor_learner: SensorimotorContingencyLearner` — Learns action→Δsensor mappings.
+- `_active_perception_gate: ActivePerceptionGate` — Tracks sensor interest based on prediction error.
+- `_prev_sensors: Dict | None` — Cached sensor snapshot from previous cycle (1-cycle lag for recording).
+- `_pending_action_signature: str | None` — Action signature awaiting next-cycle outcome recording.
 
 ---
 
@@ -1308,6 +1536,20 @@ Aggregate health snapshot across all subsystems.
 - `memory_status` (from `MyelinationMemory.get_status()`)
 - `brain_status` (from `SuperBrain.get_status()`)
 - `interface_status` (from `SymbiosisInterface.get_status()`)
+
+---
+
+##### `get_active_sensors(k: int = 3) -> Set[str]`
+
+**Phase 5.1 — Active Perception query**.
+
+Return the top-`k` most interesting sensors according to the active perception gate.
+Useful for selective sensing in the next cycle.
+
+**Parameters**:
+- `k` — Number of top sensors to return (default 3).
+
+**Returns**: Set of sensor names (e.g., `{"vibration", "temperature"}`).
 
 ---
 
@@ -1412,15 +1654,35 @@ class InfantSkill(Protocol):
     version: str
     description: str
     dependencies: list[str]
+    parallelism_policy: ParallelismPolicy  # Sprint 2: threading policy (default SEQUENTIAL)
     def initialize(self, context: SkillContext) -> None: ...
     def can_activate(self, context: SkillContext) -> bool: ...
     def execute(self, params: dict[str, Any]) -> Any: ...
     def get_resource_usage(self) -> dict[str, float]: ...
     def shutdown(self) -> None: ...
     def get_status(self) -> dict[str, Any]: ...
+
+    # Sprint 1 — Async I/O extension (optional)
+    def can_execute_async(self) -> bool: ...      # Default: False
+    async def execute_async(self, params: dict[str, Any]) -> Any: ...  # Optional
 ```
 
-All concrete skills must implement this interface.
+**ParallelismPolicy** (Sprint 2):
+```python
+from enum import Enum
+class ParallelismPolicy(Enum):
+    SEQUENTIAL = "sequential"   # Must run on main thread (dependency ordering)
+    ISOLATED = "isolated"       # No shared state access; thread-safe
+    READONLY = "readonly"       # Read-only shared access; thread-safe
+    SHARED_WRITE = "shared_write"  # Writes shared state; internal locking required
+```
+
+To enable thread-pool execution, set `parallelism_policy = ParallelismPolicy.ISOLATED` (or READONLY) at class level. The lifecycle manager automatically dispatches such skills to a `ThreadPoolExecutor`.
+
+**Async vs Thread-Pool**: These are orthogonal dimensions:
+- `can_execute_async()=True` → runs via `asyncio` (I/O-bound, network)
+- `parallelism_policy=ISOLATED/READONLY` → runs via `ThreadPoolExecutor` (CPU-bound)
+Skills can be both async AND isolated, but typically async skills are I/O-bound and don't need a separate thread pool.
 
 ---
 
@@ -1508,16 +1770,77 @@ mgr = SkillLifecycleManager(registry, max_executions_per_cycle=5, energy_budget_
 **Parameters**:
 - `max_executions_per_cycle` — Hard cap on skill executions per tick (prevent runaway).
 - `energy_budget_ratio` — Maximum fraction of current energy that can be spent in one cycle (default 0.1 → 10%).
+- `thread_pool_size` — Maximum worker threads for CPU-bound skills (default 2, Sprint 2).
 
 **Key methods**:
 - `tick(context) -> list[SkillExecutionRecord]` — Run enabled skills (respecting budget, manual disables). Returns per-skill records.
+  - **Execution phases**:
+    1. `SEQUENTIAL` skills (preserve dependency order)
+    2. `SHARED_WRITE` skills (sequential, internal locks)
+    3. `ISOLATED` + `READONLY` skills (thread pool batch)
+    4. `ASYNC` skills (`asyncio.gather()`)
+  - **Async timeout**: `ASYNCIO_TIMEOUT = 5.0` seconds; hanging tasks cancelled.
+  - **Thread pool timeout**: `THREADPOOL_TIMEOUT = 5.0` seconds.
+  - **Energy accounting**: Atomic reservation before dispatch (`_reserve_energy`), deduct on success (`_deduct_energy`), refund on failure (`_refund_energy`). Guarantees budget never exceeded even under parallel dispatch.
 - `disable(name)` / `enable(name)` — Manual skill override.
 - `is_enabled(name)` — Check if skill will run.
 - `on_hic_suspend()` — Disable all non-core skills (`energy_monitor`, `physical_anchor` remain).
 - `on_hic_resume()` — Re-enable all skills.
-- `get_stats()` — Monitoring: total executions, error rate, disabled list, etc.
+- `get_stats()` — Monitoring: total executions, error rate, disabled list, `thread_pool_size`, `budget_remaining`, `spent_energy`.
+- `shutdown()` — Cleanup: shuts down thread pool executor.
 
-**Energy budgeting**: Before executing each skill, the manager fetches `skill.get_resource_usage()["energy_cost"]` and checks prospective `spent_energy + cost` against `energy_available * energy_budget_ratio`. Skills are skipped if they would exceed budget.
+**Energy budgeting**: Before executing each skill, the manager fetches `skill.get_resource_usage()["energy_cost"]`. Using atomic `_reserve_energy()`, it checks prospective cost against `budget_remaining`. Skills are skipped if reservation fails. This pre-allocation pattern prevents overspending when multiple skills dispatch in parallel.
+
+**Async support** (Sprint 1, 2026-04-23): Skills implementing `can_execute_async() → True` and `execute_async()` are automatically detected and run in a concurrent batch via `asyncio.gather()`. This is opt-in: existing skills without these methods run unchanged.
+
+**Thread pool** (Sprint 2, 2026-04-24): Skills with `parallelism_policy` set to `ISOLATED` or `READONLY` are dispatched to a shared `ThreadPoolExecutor`. Energy is reserved before submission; successful completion deducts cost, failures refund. Timeouts (5s) cancel hanging tasks.
+
+---
+
+### Resource Lock Manager
+
+**Module**: `cosmic_mycelium.infant.skills.resource_lock_manager`
+
+Provides fine-grained reentrant locks for shared infant state to enable safe parallel execution.
+
+```python
+from cosmic_mycelium.infant.skills.resource_lock_manager import ResourceLockManager
+
+# Acquire a single resource
+with ResourceLockManager.lock("feature_manager"):
+    fm.append(...)  # protected
+
+# Acquire multiple resources in global order (deadlock-free)
+with ResourceLockManager.lock_multiple(["memory", "feature_manager"]):
+    # Locks acquired in order: feature_manager → memory (alphabetical)
+    ...
+```
+
+**Global lock order** (for deadlock prevention):
+1. `"brain"`
+2. `"feature_manager"`
+3. `"hic"`
+4. `"memory"`
+
+Any call to `lock_multiple()` sorts requested resources by this order before acquiring. Skills that need multiple locks should always request them together via `lock_multiple()` to guarantee safe ordering.
+
+**Resources**: `"feature_manager"`, `"memory"`, `"brain"`, `"hic"`.
+
+**Methods**:
+- `get_lock(name) -> threading.RLock` — get the lock object directly.
+- `lock(name) -> contextmanager` — acquire single resource.
+- `lock_multiple(names) -> contextmanager` — acquire multiple in global order.
+- `is_locked(name) -> bool` — check if resource currently held.
+
+**Usage pattern in skills** (Sprint 2):
+```python
+class SomeSharedWriteSkill(InfantSkill):
+    parallelism_policy = ParallelismPolicy.SHARED_WRITE
+    def execute(self, params):
+        # Acquire only the resources needed for this mutation
+        with ResourceLockManager.lock("feature_manager"):
+            self.feature_manager.append(...)
+```
 
 ---
 

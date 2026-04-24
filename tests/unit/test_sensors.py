@@ -5,11 +5,12 @@ Tests multi-modal sensor data generation.
 
 from __future__ import annotations
 
-import math
 import time
 from unittest.mock import patch
+
 import pytest
-from cosmic_mycelium.infant.sensors import SensorArray, SensorType, SensorReading
+
+from cosmic_mycelium.infant.sensors import SensorArray, SensorReading, SensorType
 
 
 class TestSensorArrayBasics:
@@ -47,8 +48,10 @@ class TestSensorArrayBasics:
         time.sleep(0.01)
         second = sa.read_all()
         # Values should differ (statistically almost certain)
-        assert first["vibration"] != second["vibration"] or \
-               first["temperature"] != second["temperature"]
+        assert (
+            first["vibration"] != second["vibration"]
+            or first["temperature"] != second["temperature"]
+        )
 
     def test_get_reading_returns_sensor_reading_object(self):
         """get_reading() produces SensorReading with correct type."""
@@ -77,7 +80,7 @@ class TestSensorPhysics:
         sa = SensorArray(vibration_amplitude=0.1)
         for _ in range(100):
             v = sa.read_all()["vibration"]
-            # Base amp 0.1 * (1±0.3 modulation) + noise(3σ≈0.06) → expect |v| < 0.5
+            # Base amp 0.1 * (1±0.3 modulation) + noise(3sigma≈0.06) -> expect |v| < 0.5
             assert abs(v) < 0.5
 
     def test_temperature_around_mean(self):
@@ -114,7 +117,9 @@ class TestSensorPhysics:
         duration = time.monotonic() - start
 
         # Count zero crossings (sign changes)
-        crossings = sum(1 for i in range(1, len(samples)) if samples[i-1] * samples[i] < 0)
+        crossings = sum(
+            1 for i in range(1, len(samples)) if samples[i - 1] * samples[i] < 0
+        )
         measured_hz = crossings / (2 * duration)  # Each cycle has 2 crossings
         # Allow 10% tolerance
         assert 45 <= measured_hz <= 55
@@ -146,7 +151,9 @@ class TestSensorDeterminism:
             # All fields should match exactly (same RNG state, same elapsed=0)
             assert r1["vibration"] == pytest.approx(r2["vibration"], abs=1e-10)
             assert r1["temperature"] == pytest.approx(r2["temperature"], abs=1e-10)
-            assert r1["spectrum_power"] == pytest.approx(r2["spectrum_power"], abs=1e-10)
+            assert r1["spectrum_power"] == pytest.approx(
+                r2["spectrum_power"], abs=1e-10
+            )
 
     def test_different_seeds_produce_different_sequences(self):
         """Different seeds yield different data streams."""
@@ -201,7 +208,9 @@ class TestSensorEdgeCases:
 
     def test_temperature_absolute_zero_never_reached(self):
         """Temperature never goes below absolute zero (0K ≈ -273°C)."""
-        sa = SensorArray(temperature_mean=22.0, temperature_variation=50.0)  # Extreme variation
+        sa = SensorArray(
+            temperature_mean=22.0, temperature_variation=50.0
+        )  # Extreme variation
         for _ in range(1000):
             temp = sa.read_all()["temperature"]
             assert temp > -300  # Well above absolute zero in Celsius

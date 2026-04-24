@@ -5,24 +5,42 @@ Handles scale parameters (infant/cluster/global) and per-layer defaults.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Dict, Any
 import os
+from dataclasses import dataclass, field
+from typing import Any, ClassVar
+
+
+# Base HIC (Hyphal-Interconnection-Contract) parameters shared across all scales.
+_BASE_HIC_PARAMS: dict[str, Any] = {
+    "energy_max": 100.0,
+    "contract_duration": 0.055,
+    "diffuse_duration": 0.005,
+    "suspend_duration": 5.0,
+    "recovery_energy": 60.0,
+    "recovery_rate": 0.5,
+    # Phase 1: Hysteresis & absolute safety (IMP-01, IMP-02.1)
+    "suspend_enter_threshold": 20.0,
+    "suspend_exit_threshold": 25.0,
+    "confidence_suspend_threshold": 0.3,
+    "confidence_resume_threshold": 0.5,
+    "energy_absolute_min": 5.0,
+}
 
 
 @dataclass
 class ScaleConfig:
     """Configuration for one fractal scale."""
+
     name: str
     # Per-layer sub-configs
-    abstract_segmenter: Dict[str, Any] = field(default_factory=dict)
-    semantic_mapper: Dict[str, Any] = field(default_factory=dict)
-    slime_explorer: Dict[str, Any] = field(default_factory=dict)
-    myelination: Dict[str, Any] = field(default_factory=dict)
-    superbrain: Dict[str, Any] = field(default_factory=dict)
-    symbiosis: Dict[str, Any] = field(default_factory=dict)
+    abstract_segmenter: dict[str, Any] = field(default_factory=dict)
+    semantic_mapper: dict[str, Any] = field(default_factory=dict)
+    slime_explorer: dict[str, Any] = field(default_factory=dict)
+    myelination: dict[str, Any] = field(default_factory=dict)
+    superbrain: dict[str, Any] = field(default_factory=dict)
+    symbiosis: dict[str, Any] = field(default_factory=dict)
     # Scale-level parameters (HIC, etc.)
-    params: Dict[str, Any] = field(default_factory=dict)
+    params: dict[str, Any] = field(default_factory=dict)
 
 
 class ConfigManager:
@@ -38,7 +56,7 @@ class ConfigManager:
     """
 
     # Valid layer names for per-layer config access
-    VALID_LAYERS = {
+    VALID_LAYERS: ClassVar[set[str]] = {
         "abstract_segmenter",
         "semantic_mapper",
         "slime_explorer",
@@ -46,25 +64,28 @@ class ConfigManager:
         "superbrain",
         "symbiosis",
     }
-    VALID_SCALES = {"infant", "cluster", "global", "hic"}
+    VALID_SCALES: ClassVar[set[str]] = {"infant", "cluster", "global", "hic"}
 
     # Predefined scale configurations
-    SCALES = {
+    SCALES: ClassVar[dict[str, ScaleConfig]] = {
         "infant": ScaleConfig(
             name="infant",
             abstract_segmenter={"windows": 6, "base_duration": 0.055},
             semantic_mapper={"embedding_dim": 16},
             slime_explorer={"num_spores": 10},
             myelination={"max_traces": 1000},
-            superbrain={"regions": ["sensory", "predictor", "planner", "motor", "meta"]},
+            superbrain={
+                "regions": ["sensory", "predictor", "planner", "motor", "meta"]
+            },
             symbiosis={"max_partners": 10},
             params={
-                "energy_max": 100.0,
-                "contract_duration": 0.055,
-                "diffuse_duration": 0.005,
-                "suspend_duration": 5.0,
-                "recovery_energy": 60.0,
-                "recovery_rate": 0.5,
+                **_BASE_HIC_PARAMS,
+                # Phase 4.2.2: THEIA physics intuition engine
+                "theia_enabled": False,
+                "theia_model_path": "models/theia_physics.pt",
+                "theia_probe_lambda": 0.5,
+                "theia_energy_threshold": 70.0,
+                "theia_confidence_threshold": 0.7,
             },
         ),
         "cluster": ScaleConfig(
@@ -73,16 +94,18 @@ class ConfigManager:
             semantic_mapper={"embedding_dim": 64},
             slime_explorer={"num_spores": 50},
             myelination={"max_traces": 10000},
-            superbrain={"regions": ["sensory", "predictor", "planner", "motor", "meta", "consensus"]},
-            symbiosis={"max_partners": 100},
-            params={
-                "energy_max": 100.0,
-                "contract_duration": 0.055,
-                "diffuse_duration": 0.005,
-                "suspend_duration": 5.0,
-                "recovery_energy": 60.0,
-                "recovery_rate": 0.5,
+            superbrain={
+                "regions": [
+                    "sensory",
+                    "predictor",
+                    "planner",
+                    "motor",
+                    "meta",
+                    "consensus",
+                ]
             },
+            symbiosis={"max_partners": 100},
+            params={**_BASE_HIC_PARAMS},
         ),
         "global": ScaleConfig(
             name="global",
@@ -90,16 +113,19 @@ class ConfigManager:
             semantic_mapper={"embedding_dim": 256},
             slime_explorer={"num_spores": 200},
             myelination={"max_traces": 100000},
-            superbrain={"regions": ["sensory", "predictor", "planner", "motor", "meta", "consensus", "orchestrator"]},
-            symbiosis={"max_partners": 10000},
-            params={
-                "energy_max": 100.0,
-                "contract_duration": 0.055,
-                "diffuse_duration": 0.005,
-                "suspend_duration": 5.0,
-                "recovery_energy": 60.0,
-                "recovery_rate": 0.5,
+            superbrain={
+                "regions": [
+                    "sensory",
+                    "predictor",
+                    "planner",
+                    "motor",
+                    "meta",
+                    "consensus",
+                    "orchestrator",
+                ]
             },
+            symbiosis={"max_partners": 10000},
+            params={**_BASE_HIC_PARAMS},
         ),
     }
 
@@ -109,20 +135,39 @@ class ConfigManager:
         self._apply_env_overrides()
 
     def _apply_env_overrides(self) -> None:
-        """Apply environment variable overrides (simplified)."""
-        # Not implementing full override logic for brevity
-        pass
+        """Apply environment variable overrides prefixed with COSMIC_.
+
+        Maps COSMIC_<KEY>=<VALUE> to params.<key> with automatic type
+        conversion: bool for "true"/"false", int, float, or str fallback.
+        """
+        for env_var, raw_value in os.environ.items():
+            if not env_var.startswith("COSMIC_"):
+                continue
+            key = env_var[len("COSMIC_"):].lower()
+            # Type coercion: bool -> int -> float -> str
+            value: Any
+            if raw_value.lower() in ("true", "false"):
+                value = raw_value.lower() == "true"
+            else:
+                try:
+                    value = int(raw_value)
+                except ValueError:
+                    try:
+                        value = float(raw_value)
+                    except ValueError:
+                        value = raw_value
+            self.config.params[key] = value
 
     @classmethod
-    def for_infant(cls) -> "ConfigManager":
+    def for_infant(cls) -> ConfigManager:
         return cls("infant")
 
     @classmethod
-    def for_cluster(cls) -> "ConfigManager":
+    def for_cluster(cls) -> ConfigManager:
         return cls("cluster")
 
     @classmethod
-    def for_global(cls) -> "ConfigManager":
+    def for_global(cls) -> ConfigManager:
         return cls("global")
 
     def get(self, layer: str, param: str, default: Any = None) -> Any:
@@ -153,7 +198,7 @@ class ConfigManager:
             return default
         raise KeyError(f"Parameter '{param}' not found in layer '{layer}'")
 
-    def as_dict(self) -> Dict[str, Any]:
+    def as_dict(self) -> dict[str, Any]:
         """Export full configuration across all scales."""
         return {
             "infant": {

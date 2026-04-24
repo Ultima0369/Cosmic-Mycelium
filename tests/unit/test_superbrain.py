@@ -5,15 +5,12 @@ Tests multi-region processing, attention competition, global workspace, decay.
 
 from __future__ import annotations
 
-import time
 from unittest.mock import patch
-import numpy as np
+
 import pytest
+
 from cosmic_mycelium.infant.core.layer_5_superbrain import (
     SuperBrain,
-    BrainRegion,
-    RegionConfig,
-    RegionActivity,
 )
 
 
@@ -116,7 +113,7 @@ class TestPlanning:
         assert isinstance(result["quality"], float)
 
     def test_plan_quality_in_range(self):
-        """Plan quality is a float 0–1."""
+        """Plan quality is a float 0-1."""
         brain = SuperBrain()
         for _ in range(10):
             plan = brain.plan({"seed": _})
@@ -217,7 +214,7 @@ class TestStatus:
         brain = SuperBrain()
         status = brain.get_status()
 
-        for region_name, region_status in status["regions"].items():
+        for _, region_status in status["regions"].items():
             assert "activation" in region_status
             assert "working_memory_len" in region_status
             assert "specialty" in region_status
@@ -257,7 +254,7 @@ class TestCompetition:
         brain.regions["sensory"].activation = 0.8
         brain.regions["predictor"].activation = 0.5
         # Seed numpy random for deterministic softmax alternative path
-        with patch('numpy.random.choice', return_value=0):
+        with patch("numpy.random.choice", return_value=0):
             winner = brain._competition_step()
             # Should pick highest (sensory index 0)
             assert winner == "sensory"
@@ -322,7 +319,7 @@ class TestHealth:
         brain.regions["sensory"].activation = 0.8
         brain.regions["sensory"].activation_history = [0.5, 0.6, 0.7, 0.8]
         health = brain.get_region_health()
-        for region_name, metrics in health.items():
+        for _, metrics in health.items():
             assert "activation_mean" in metrics
             assert "activation_variance" in metrics
             assert "stagnation" in metrics

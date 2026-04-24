@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 import pytest
+
 from cosmic_mycelium.infant.engines.engine_sympnet import SympNetEngine
 
 # Add project root
@@ -36,9 +37,9 @@ class TestEnergyConservation:
         final = engine.compute_energy(q, p)
 
         drift = abs(final - initial) / max(initial, 1e-9)
-        assert drift < self.TOLERANCE, (
-            f"Energy drift {drift:.6%} exceeds threshold {self.TOLERANCE:.6%}"
-        )
+        assert (
+            drift < self.TOLERANCE
+        ), f"Energy drift {drift:.6%} exceeds threshold {self.TOLERANCE:.6%}"
 
     @pytest.mark.parametrize("steps", [1_000, 10_000, 100_000, 1_000_000])
     def test_energy_conservation_scales(self, steps):
@@ -137,7 +138,9 @@ class TestDampedDynamics:
             energies.append(engine.compute_energy(q, p))
 
         # Allow tiny floating-point tolerance (increases ~1e-10 are negligible)
-        assert all(energies[i] >= energies[i + 1] - 1e-9 for i in range(len(energies) - 1))
+        assert all(
+            energies[i] >= energies[i + 1] - 1e-9 for i in range(len(energies) - 1)
+        )
 
     def test_energy_eventually_approaches_zero(self):
         """Damped oscillator approaches rest."""

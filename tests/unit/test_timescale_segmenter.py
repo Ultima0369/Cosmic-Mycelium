@@ -5,12 +5,10 @@ Tests temporal segmentation and windowing logic.
 
 from __future__ import annotations
 
-import pytest
-import time
 from cosmic_mycelium.infant.core.layer_1_timescale_segmenter import (
-    TimescaleSegmenter,
-    Segment,
     Scale,
+    Segment,
+    TimescaleSegmenter,
 )
 
 

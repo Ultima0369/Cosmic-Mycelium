@@ -18,17 +18,15 @@ import argparse
 import asyncio
 import logging
 import os
-import signal
 import sys
 import uuid
 from pathlib import Path
-from typing import List
 
 project_root = Path(__file__).parent.parent.absolute()
 sys.path.insert(0, str(project_root))
 
-from cosmic_mycelium.cluster.node_manager import NodeManager
-from cosmic_mycelium.utils.logging import setup_logging
+from cosmic_mycelium.cluster.node_manager import NodeManager  # noqa: E402
+from cosmic_mycelium.utils.logging import setup_logging  # noqa: E402
 
 
 def parse_args():
@@ -38,45 +36,45 @@ def parse_args():
     )
 
     parser.add_argument(
-        '--nodes',
+        "--nodes",
         type=int,
         default=3,
-        help='Number of infant nodes to spawn (default: 3)'
+        help="Number of infant nodes to spawn (default: 3)",
     )
 
     parser.add_argument(
-        '--min-nodes',
+        "--min-nodes",
         type=int,
         default=3,
-        help='Minimum nodes to maintain (default: 3)'
+        help="Minimum nodes to maintain (default: 3)",
     )
 
     parser.add_argument(
-        '--max-nodes',
+        "--max-nodes",
         type=int,
         default=100,
-        help='Maximum nodes allowed (default: 100)'
+        help="Maximum nodes allowed (default: 100)",
     )
 
     parser.add_argument(
-        '--env',
+        "--env",
         type=str,
-        default=os.getenv('COSMIC_ENV', 'development'),
-        choices=['development', 'staging', 'production'],
+        default=os.getenv("COSMIC_ENV", "development"),
+        choices=["development", "staging", "production"],
     )
 
     parser.add_argument(
-        '--log-level',
+        "--log-level",
         type=str,
-        default=os.getenv('LOG_LEVEL', 'INFO'),
-        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+        default=os.getenv("LOG_LEVEL", "INFO"),
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
     )
 
     parser.add_argument(
-        '--profile',
+        "--profile",
         type=str,
-        default='dev',
-        choices=['dev', 'prod'],
+        default="dev",
+        choices=["dev", "prod"],
     )
 
     return parser.parse_args()
@@ -137,7 +135,7 @@ class ClusterRunner:
                 )
 
                 # Auto-repair: spawn node if below minimum
-                if status['active_nodes'] < self.config.min_nodes:
+                if status["active_nodes"] < self.config.min_nodes:
                     self.logger.warning(
                         f"⚠️  Node count below minimum ({status['active_nodes']} < {self.config.min_nodes}), spawning..."
                     )

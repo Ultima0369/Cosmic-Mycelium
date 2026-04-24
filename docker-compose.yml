@@ -192,11 +192,11 @@ services:
       kafka:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "from cosmic_mycelium.infant.main import SiliconInfant; print('OK')"]
+      test: ["CMD", "python", "-c", "from cosmic_mycelium.infant.main import SiliconInfant; SiliconInfant('healthcheck'); print('OK')"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 5s
     restart: unless-stopped
     profiles:
       - dev

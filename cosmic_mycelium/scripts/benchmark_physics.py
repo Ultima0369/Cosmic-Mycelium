@@ -26,6 +26,7 @@ from cosmic_mycelium.infant.engines.engine_sympnet import SympNetEngine
 @dataclass
 class PhysicsReport:
     """Results of a physics validation run."""
+
     test_name: str
     passed: bool
     details: dict
@@ -50,7 +51,10 @@ class PhysicsBenchmark:
         print("=" * 60 + "\n")
 
         tests = [
-            ("Energy Conservation (Simple Harmonic)", self.test_energy_conservation_sho),
+            (
+                "Energy Conservation (Simple Harmonic)",
+                self.test_energy_conservation_sho,
+            ),
             ("Energy Conservation (Damped)", self.test_energy_conservation_damped),
             ("Symplectic Integrator Order", self.test_symplectic_order),
             ("Long-term Drift Accumulation", self.test_drift_accumulation),
@@ -135,8 +139,11 @@ class PhysicsBenchmark:
             q, p = engine.step(q, p, dt)
             energies.append(engine.compute_energy(q, p))
 
-        # Energy should strictly decrease (or stay constant if undamped)
-        is_monotonic = all(energies[i] >= energies[i+1] for i in range(len(energies)-1))
+        # Energy should non-increase (damping causes decay). Allow tiny floating-point tolerance.
+        eps = 1e-9  # Absolute epsilon for floating-point noise at ~1e-10 scale
+        is_monotonic = all(
+            energies[i + 1] <= energies[i] + eps for i in range(len(energies) - 1)
+        )
         total_decay = (energies[0] - energies[-1]) / energies[0]
 
         passed = is_monotonic and total_decay > 0.01  # At least 1% decay
@@ -304,12 +311,46 @@ class PhysicsBenchmark:
     def _save_report(self):
         """Save results to JSON file."""
         report_path = self.output_dir / "physics-validation.json"
+
+        # Recursive converter for numpy and other non-JSON-native types
+        def _to_native(val):
+            if hasattr(val, "item") and callable(val.item):
+                try:
+                    return val.item()
+                except Exception:
+                    pass
+            if isinstance(val, dict):
+                return {k: _to_native(v) for k, v in val.items()}
+            if isinstance(val, (list, tuple)):
+                return [_to_native(v) for v in val]
+            # Numpy-specific
+            try:
+                import numpy as np
+
+                if isinstance(val, np.bool_):
+                    return bool(val)
+                if isinstance(val, (np.integer, np.floating)):
+                    return val.item()
+                if isinstance(val, np.ndarray):
+                    return val.tolist()
+            except (ImportError, AttributeError):
+                pass
+            return val
+
         report = {
             "project": "Cosmic Mycelium",
             "component": "SympNet Engine (Physics Anchor)",
             "timestamp": time.time(),
             "all_passed": all(r.passed for r in self.results),
-            "tests": [r.to_dict() for r in self.results],
+            "tests": [
+                {
+                    "test_name": r.test_name,
+                    "passed": r.passed,
+                    "details": _to_native(r.details),
+                    "timestamp": r.timestamp,
+                }
+                for r in self.results
+            ],
             "summary": {
                 "total": len(self.results),
                 "passed": sum(1 for r in self.results if r.passed),
@@ -317,14 +358,17 @@ class PhysicsBenchmark:
             },
         }
 
-        with open(report_path, 'w') as f:
+        # Convert any numpy types in top-level fields too
+        report = _to_native(report)
+
+        with open(report_path, "w") as f:
             json.dump(report, f, indent=2)
 
         print(f"📄 Report saved to: {report_path}")
 
         # Also save a short summary
         summary_path = self.output_dir / "physics-summary.txt"
-        with open(summary_path, 'w') as f:
+        with open(summary_path, "w") as f:
             f.write("Cosmic Mycelium — Physics Validation Summary\n")
             f.write("=" * 50 + "\n\n")
             for r in self.results:
@@ -332,7 +376,9 @@ class PhysicsBenchmark:
                 f.write(f"{status}  {r.test_name}\n")
                 if not r.passed:
                     f.write(f"        Details: {r.details}\n")
-            f.write(f"\nTotal: {sum(1 for r in self.results if r.passed)}/{len(self.results)} passed\n")
+            f.write(
+                f"\nTotal: {sum(1 for r in self.results if r.passed)}/{len(self.results)} passed\n"
+            )
 
         print(f"📄 Summary saved to: {summary_path}")
 
@@ -343,20 +389,18 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        '--output',
+        "--output",
         type=Path,
         default=Path("reports"),
-        help='Output directory for reports (default: ./reports)'
+        help="Output directory for reports (default: ./reports)",
     )
     parser.add_argument(
-        '--json-only',
-        action='store_true',
-        help='Only output JSON report (no console output)'
+        "--json-only",
+        action="store_true",
+        help="Only output JSON report (no console output)",
     )
     parser.add_argument(
-        '--fail-fast',
-        action='store_true',
-        help='Exit on first failure'
+        "--fail-fast", action="store_true", help="Exit on first failure"
     )
 
     args = parser.parse_args()

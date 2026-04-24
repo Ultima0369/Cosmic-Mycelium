@@ -124,7 +124,7 @@ make test-physics
 pytest tests/physics/ -v
 
 # 生成详细报告
-python -m cosmic_mycelium.tests.physics.benchmark_physics
+cosmic-physics  # 或: python scripts/benchmark_physics.py
 ```
 
 **物理测试失败 = CI 失败 = PR 被拒绝**。

@@ -5,10 +5,8 @@ Tests the菌丝网络的"血液"与"信任锚点".
 
 from __future__ import annotations
 
-import hashlib
-import json
 import time
-import pytest
+
 from cosmic_mycelium.common.data_packet import CosmicPacket
 from cosmic_mycelium.common.physical_fingerprint import PhysicalFingerprint
 
@@ -18,10 +16,7 @@ class TestCosmicPacket:
 
     def test_packet_creation_minimal(self):
         """Create packet with minimal fields."""
-        packet = CosmicPacket(
-            timestamp=1234567890.0,
-            source_id="node-001"
-        )
+        packet = CosmicPacket(timestamp=1234567890.0, source_id="node-001")
         assert packet.timestamp == 1234567890.0
         assert packet.source_id == "node-001"
         assert packet.destination_id is None
@@ -38,7 +33,7 @@ class TestCosmicPacket:
             info_payload={"feature_code": "abc123"},
             value_payload={"action": "suspend"},
             priority=2.0,
-            ttl=100
+            ttl=100,
         )
         assert packet.destination_id == "node-002"
         assert packet.physical_payload["vibration"] == 42.0
@@ -60,21 +55,13 @@ class TestCosmicPacket:
 
     def test_packet_ttl_decrement(self):
         """TTL can be decremented for routing."""
-        packet = CosmicPacket(
-            timestamp=time.time(),
-            source_id="node-001",
-            ttl=10
-        )
+        packet = CosmicPacket(timestamp=time.time(), source_id="node-001", ttl=10)
         packet.ttl -= 1
         assert packet.ttl == 9
 
     def test_packet_expiry(self):
         """Packet is considered expired when TTL reaches 0."""
-        packet = CosmicPacket(
-            timestamp=time.time(),
-            source_id="node-001",
-            ttl=1
-        )
+        packet = CosmicPacket(timestamp=time.time(), source_id="node-001", ttl=1)
         packet.ttl -= 1
         assert packet.ttl == 0
         # In production, TTL=0 means "drop this packet"
@@ -157,16 +144,13 @@ class TestPhysicalAnchorIntegrity:
 
     def test_anchor_roundtrip(self):
         """Generate → verify must always succeed."""
-        test_data = [
-            {"sensor": "vibration", "value": float(i)}
-            for i in range(1000)
-        ]
+        test_data = [{"sensor": "vibration", "value": float(i)} for i in range(1000)]
 
         for data in test_data:
             fp = PhysicalFingerprint.generate(data)
-            assert PhysicalFingerprint.verify(data, fp), (
-                f"Anchor failed for data: {data}"
-            )
+            assert PhysicalFingerprint.verify(
+                data, fp
+            ), f"Anchor failed for data: {data}"
 
     def test_anchor_resists_collision(self):
         """Two different inputs almost certainly produce different fingerprints."""

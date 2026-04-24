@@ -5,10 +5,9 @@ Kubernetes-compatible health check endpoints.
 
 from __future__ import annotations
 
-import asyncio
 import json
 from dataclasses import dataclass
-from typing import Optional
+
 from aiohttp import web
 
 
@@ -18,9 +17,10 @@ class HealthChecker:
     HTTP health check server.
     Implements K8s liveness and readiness probes.
     """
+
     port: int = 8001
-    infant: Optional[object] = None  # SiliconInfant (circular import avoided)
-    _runner: Optional[web.AppRunner] = None
+    infant: object | None = None  # SiliconInfant (circular import avoided)
+    _runner: web.AppRunner | None = None
 
     async def start(self) -> None:
         """Start health check server."""
@@ -53,11 +53,13 @@ class HealthChecker:
         Checks energy > 0 and not in critical error state.
         """
         if self.infant and self.infant.hic.energy > 0:
-            return web.json_response({
-                "status": "ready",
-                "energy": self.infant.hic.energy,
-                "breath": self.infant.hic.breath_state.value,
-            })
+            return web.json_response(
+                {
+                    "status": "ready",
+                    "energy": self.infant.hic.energy,
+                    "breath": self.infant.hic.breath_state.value,
+                }
+            )
         return web.json_response(
             {"status": "not_ready", "reason": "energy_depleted"},
             status=503,
@@ -70,8 +72,11 @@ class HealthChecker:
         status = 200 if ready_resp.status == 200 else 503
         live_body = json.loads(live_resp.body.decode())
         ready_body = json.loads(ready_resp.body.decode())
-        return web.json_response({
-            "status": "ok" if status == 200 else "degraded",
-            "liveness": live_body,
-            "readiness": ready_body,
-        }, status=status)
+        return web.json_response(
+            {
+                "status": "ok" if status == 200 else "degraded",
+                "liveness": live_body,
+                "readiness": ready_body,
+            },
+            status=status,
+        )

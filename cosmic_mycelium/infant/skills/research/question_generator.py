@@ -43,6 +43,7 @@ class QuestionGenerator:
 
     def __init__(self, knowledge_store: KnowledgeStore):
         self.knowledge = knowledge_store
+        self._recent_questions: list[GeneratedQuestion] = []
 
     def generate(
         self,
@@ -88,6 +89,14 @@ class QuestionGenerator:
             q = self._generate_from_entry(entry)
             if q:
                 questions.append(q)
+
+        # Track for recent_generation_rate metric
+        self._recent_questions.extend(questions)
+        # Evict questions older than 1 hour
+        cutoff = time.time() - 3600.0
+        self._recent_questions = [
+            q for q in self._recent_questions if q.generated_at >= cutoff
+        ]
 
         return questions
 
@@ -148,7 +157,14 @@ class QuestionGenerator:
         )
 
     def get_status(self) -> dict[str, Any]:
+        # Recent generation rate: questions generated in the last hour / 3600
+        now = time.time()
+        one_hour_ago = now - 3600.0
+        recent_count = sum(
+            1 for q in getattr(self, "_recent_questions", [])
+            if q.generated_at >= one_hour_ago
+        )
         return {
             "knowledge_entries": len(self.knowledge.list_all()),
-            "recent_generation_rate": 0.0,  # TODO
+            "recent_generation_rate": recent_count / 3600.0,
         }

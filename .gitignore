@@ -184,3 +184,29 @@ ENV/
 # Backup files
 *.bak
 *.backup
+
+# AI assistant artifacts
+.claude/
+.aider*
+.aider.tags.cache*/
+memory/
+
+# AI-generated analysis documents (legitimate project docs are tracked)
+ARCHITECTURE_REVIEW.md
+COMMUNITY_PLAN.md
+IMPROVEMENT_PLAN.md
+INFRASTRUCTURE_PROPOSAL.md
+PERFORMANCE_AUDIT.md
+PHASE4_KICKOFF.md
+PHASE4_PROPOSAL.md
+QUALITY_GAP_ANALYSIS.md
+RESEARCH_DIRECTIONS.md
+SECURITY_AUDIT.md
+SPRINT0_COMPLETION.md
+SPRINT1_EPIC1_COMPLETION.md
+SPRINT1_EPIC3_COMPLETION.md
+docs/DECISIONS.md
+docs/QUICKSTART.md
+docs/RESTRUCTURE_PROPOSAL.md
+docs/TROUBLESHOOTING.md
+reports/

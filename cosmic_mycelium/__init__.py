@@ -22,14 +22,13 @@ __author__ = "Stardust & Xuanji"
 __license__ = "AGPL-3.0"
 __description__ = "A self-evolving, ternary-model-based silicon-based lifeform core"
 
-# Core exports (minimal, explicit)
-from cosmic_mycelium.infant.main import SiliconInfant
 from cosmic_mycelium.common.data_packet import CosmicPacket
 from cosmic_mycelium.common.physical_fingerprint import PhysicalFingerprint
+from cosmic_mycelium.infant.main import SiliconInfant
 
 __all__ = [
-    "SiliconInfant",
     "CosmicPacket",
     "PhysicalFingerprint",
+    "SiliconInfant",
     "__version__",
 ]

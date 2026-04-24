@@ -8,12 +8,16 @@ from __future__ import annotations
 import asyncio
 import random
 import time
-from pathlib import Path
-from typing import AsyncGenerator, Generator
+from typing import TYPE_CHECKING
 
 import pytest
-from _pytest.config import Config
-from _pytest.nodes import Item
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
+    from pathlib import Path
+
+    from _pytest.config import Config
+    from _pytest.nodes import Item
 
 # Set default asyncio scope
 pytest_plugins = ["pytest_asyncio"]
@@ -21,21 +25,15 @@ pytest_plugins = ["pytest_asyncio"]
 
 def pytest_configure(config: Config):
     """Configure pytest markers."""
-    config.addinivalue_line(
-        "markers", "unit: Unit tests (fast, isolated)"
-    )
+    config.addinivalue_line("markers", "unit: Unit tests (fast, isolated)")
     config.addinivalue_line(
         "markers", "integration: Integration tests (multi-component)"
     )
     config.addinivalue_line(
         "markers", "physics: Physics validation tests (energy conservation)"
     )
-    config.addinivalue_line(
-        "markers", "slow: Slow tests that take >1s"
-    )
-    config.addinivalue_line(
-        "markers", "performance: Performance benchmarks"
-    )
+    config.addinivalue_line("markers", "slow: Slow tests that take >1s")
+    config.addinivalue_line("markers", "performance: Performance benchmarks")
 
 
 def pytest_collection_modifyitems(config: Config, items: list[Item]):
@@ -52,6 +50,7 @@ def pytest_collection_modifyitems(config: Config, items: list[Item]):
 # ============================================================================
 # Fixtures: Shared Test Utilities
 # ============================================================================
+
 
 @pytest.fixture
 def infant_id() -> str:
@@ -75,8 +74,8 @@ def hic_config() -> dict:
 @pytest.fixture
 def hic(hic_config: dict):
     """Create a fresh HIC instance for each test."""
-    from cosmic_mycelium.infant.hic import HIC, HICConfig, BreathState
-    import time
+
+    from cosmic_mycelium.infant.hic import HIC, BreathState, HICConfig
 
     config = HICConfig(**hic_config)
     h = HIC(config=config, name="test-hic")
@@ -112,6 +111,7 @@ def sympnet_config() -> dict:
 def sympnet(sympnet_config: dict):
     """Create a fresh SympNet instance for each test."""
     from cosmic_mycelium.infant.engines.engine_sympnet import SympNetEngine
+
     s = SympNetEngine(**sympnet_config)
     # Clear history to ensure test isolation
     s._history = []
@@ -140,7 +140,7 @@ def test_data_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
+def event_loop() -> Generator[asyncio.AbstractEventLoop]:
     """Create an asyncio event loop for async tests."""
     loop = asyncio.new_event_loop()
     yield loop
@@ -160,6 +160,7 @@ def physics_tolerance() -> float:
 def mock_time(monkeypatch):
     """Mock time.monotonic() for deterministic HIC testing."""
     import time as real_time
+
     start = real_time.monotonic()
     current = [start]
 
@@ -177,6 +178,7 @@ def mock_time(monkeypatch):
 # Test Helpers
 # ============================================================================
 
+
 def assert_energy_conserved(
     initial_energy: float,
     final_energy: float,
@@ -192,9 +194,7 @@ def assert_energy_conserved(
 
 def assert_breath_state_valid(state: str) -> None:
     """Assert that breath state is one of the valid states."""
-    assert state in ("contract", "diffuse", "suspend"), (
-        f"Invalid breath state: {state}"
-    )
+    assert state in ("contract", "diffuse", "suspend"), f"Invalid breath state: {state}"
 
 
 def assert_hypothesis_compatible(function):
@@ -203,4 +203,3 @@ def assert_hypothesis_compatible(function):
     These tests should be deterministic given the same random seed.
     """
     return function
-

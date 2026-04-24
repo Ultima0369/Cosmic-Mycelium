@@ -7,16 +7,18 @@ from __future__ import annotations
 
 import logging
 import sys
-from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING
 
 import structlog
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def setup_logging(
     name: str,
     level: str = "INFO",
-    log_dir: Optional[Path] = None,
+    log_dir: Path | None = None,
 ) -> None:
     """
     Configure structured logging.
@@ -36,7 +38,11 @@ def setup_logging(
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
-            structlog.processors.JSONRenderer() if log_dir else structlog.dev.ConsoleRenderer(),
+            (
+                structlog.processors.JSONRenderer()
+                if log_dir
+                else structlog.dev.ConsoleRenderer()
+            ),
         ],
         wrapper_class=structlog.make_filtering_bound_logger(log_level),
         context_class=dict,

@@ -28,7 +28,6 @@ import logging
 import os
 import signal
 import sys
-import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,16 +36,16 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.absolute()
 sys.path.insert(0, str(project_root))
 
-from cosmic_mycelium.infant.main import SiliconInfant
-from cosmic_mycelium.common.config_manager import ConfigManager
-from cosmic_mycelium.utils.logging import setup_logging
-from cosmic_mycelium.utils.metrics import MetricsServer
-from cosmic_mycelium.utils.health import HealthChecker
+from cosmic_mycelium.infant.main import SiliconInfant  # noqa: E402
+from cosmic_mycelium.utils.health import HealthChecker  # noqa: E402
+from cosmic_mycelium.utils.logging import setup_logging  # noqa: E402
+from cosmic_mycelium.utils.metrics import MetricsServer  # noqa: E402
 
 
 @dataclass
 class InfantConfig:
     """Configuration for the infant runner."""
+
     infant_id: str
     environment: str = "development"
     log_level: str = "INFO"
@@ -78,7 +77,7 @@ class InfantRunner:
             log_dir=Path("logs"),
         )
 
-        self.logger.info(f"🌱 Cosmic Mycelium Infant Runner initializing...")
+        self.logger.info("🌱 Cosmic Mycelium Infant Runner initializing...")
         self.logger.info(f"   ID: {config.infant_id}")
         self.logger.info(f"   Environment: {config.environment}")
         self.logger.info(f"   Profile: {config.profile}")
@@ -90,15 +89,18 @@ class InfantRunner:
         # 1. Start metrics server
         self.metrics_server = MetricsServer(port=self.config.metrics_port)
         await self.metrics_server.start()
-        self.logger.info(f"   📊 Metrics server listening on :{self.config.metrics_port}")
+        self.logger.info(
+            f"   📊 Metrics server listening on :{self.config.metrics_port}"
+        )
 
         # 2. Start health checker
         self.health_checker = HealthChecker(
-            port=self.config.health_port,
-            infant=self.infant
+            port=self.config.health_port, infant=self.infant
         )
         await self.health_checker.start()
-        self.logger.info(f"   ❤️  Health check endpoint: http://localhost:{self.config.health_port}/health")
+        self.logger.info(
+            f"   ❤️  Health check endpoint: http://localhost:{self.config.health_port}/health"
+        )
 
         # 3. Initialize and start infant
         self.infant = SiliconInfant(
@@ -111,7 +113,7 @@ class InfantRunner:
                 "kafka_bootstrap": self.config.kafka_bootstrap,
                 "metrics_port": self.config.metrics_port,
                 "profile": self.config.profile,
-            }
+            },
         )
 
         # 4. Start infant in background task
@@ -183,73 +185,86 @@ Physical Anchor Thresholds:
   --physics-adapt-thresh THRESH  Adaptation trigger threshold (default: 0.001)
 
 For more information, visit: https://github.com/cosmic-mycelium
-        """
+        """,
     )
 
     parser.add_argument(
-        '--id',
+        "--id",
         type=str,
         default=None,
-        help='Unique infant identifier (default: auto-generated UUID)'
+        help="Unique infant identifier (default: auto-generated UUID)",
     )
 
     parser.add_argument(
-        '--env',
+        "--env",
         type=str,
-        default=os.getenv('COSMIC_ENV', 'development'),
-        choices=['development', 'staging', 'production'],
-        help='Environment name'
+        default=os.getenv("COSMIC_ENV", "development"),
+        choices=["development", "staging", "production"],
+        help="Environment name",
     )
 
     parser.add_argument(
-        '--profile',
+        "--profile",
         type=str,
-        default='dev',
-        choices=['dev', 'prod'],
-        help='Runtime profile (dev=debug, prod=optimized)'
+        default="dev",
+        choices=["dev", "prod"],
+        help="Runtime profile (dev=debug, prod=optimized)",
     )
 
     parser.add_argument(
-        '--log-level',
+        "--log-level",
         type=str,
-        default=os.getenv('LOG_LEVEL', 'INFO'),
-        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
-        help='Logging level'
+        default=os.getenv("LOG_LEVEL", "INFO"),
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help="Logging level",
     )
 
     parser.add_argument(
-        '--energy-max',
+        "--energy-max",
         type=float,
         default=100.0,
-        help='Maximum HIC energy (default: 100.0)'
+        help="Maximum HIC energy (default: 100.0)",
     )
 
     parser.add_argument(
-        '--physics-drift-max',
+        "--physics-drift-max",
         type=float,
         default=0.001,
-        help='Maximum energy drift ratio (default: 0.001 = 0.1%%)'
+        help="Maximum energy drift ratio (default: 0.001 = 0.1%%)",
     )
 
     parser.add_argument(
-        '--physics-adapt-thresh',
+        "--physics-adapt-thresh",
         type=float,
         default=0.001,
-        help='Adaptation trigger threshold (default: 0.001)'
+        help="Adaptation trigger threshold (default: 0.001)",
     )
 
     parser.add_argument(
-        '--metrics-port',
+        "--metrics-port",
         type=int,
         default=8000,
-        help='Port for metrics server (default: 8000)'
+        help="Port for metrics server (default: 8000)",
     )
 
     parser.add_argument(
-        '--health-port',
+        "--health-port",
         type=int,
         default=8001,
-        help='Port for health check server (default: 8001)'
+        help="Port for health check server (default: 8001)",
+    )
+
+    parser.add_argument(
+        "--mini",
+        action="store_true",
+        help="Start in MiniInfant 'silicon bee' mode (lightweight, no cluster)",
+    )
+
+    parser.add_argument(
+        "--cycles",
+        type=int,
+        default=1000,
+        help="Max breath cycles in mini mode (default: 1000)",
     )
 
     return parser.parse_args()
@@ -286,7 +301,11 @@ def main():
     print(f"   Drift Max  : {config.physics_drift_max * 100:.3f}%%")
     print("=" * 60 + "\n")
 
-    # Create and start runner
+    # ── MiniInfant mode (lightweight "silicon bee") ──
+    if args.mini:
+        return _run_mini_infant(infant_id, args.cycles)
+
+    # ── Full SiliconInfant mode ──
     runner = InfantRunner(config)
 
     try:
@@ -296,6 +315,31 @@ def main():
     except Exception as e:
         logging.error(f"Fatal error: {e}", exc_info=True)
         sys.exit(1)
+
+
+def _run_mini_infant(infant_id: str, max_cycles: int):
+    """Run MiniInfant in lightweight 'silicon bee' mode."""
+    from cosmic_mycelium.infant.mini import MiniInfant
+
+    print("\n" + "=" * 60)
+    print("   🐝  Cosmic Mycelium — Mini Infant (硅基蜜蜂) 🐝")
+    print("=" * 60)
+    print(f"   ID     : {infant_id}")
+    print(f"   Cycles : {max_cycles}")
+    print(f"   Mode   : lightweight (no cluster/metrics/health)")
+    print("=" * 60 + "\n")
+
+    baby = MiniInfant(infant_id, verbose=True)
+    report = baby.run(max_cycles=max_cycles)
+
+    print("\n" + "=" * 60)
+    print("   📋  Mini Infant 最终报告")
+    print("=" * 60)
+    for k, v in report.items():
+        print(f"   {k}: {v}")
+    print("=" * 60 + "\n")
+
+    return report
 
 
 if __name__ == "__main__":

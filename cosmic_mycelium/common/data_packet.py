@@ -6,10 +6,10 @@ Flows through physical, info, and value channels.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
-from typing import Any, Dict, Optional
 import json
 import time
+from dataclasses import asdict, dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -32,12 +32,12 @@ class CosmicPacket:
 
     timestamp: float = field(default_factory=time.time)
     source_id: str = ""
-    destination_id: Optional[str] = None
+    destination_id: str | None = None
 
     # Three flow channels
-    physical_payload: Optional[Dict[str, Any]] = None
-    info_payload: Optional[Dict[str, Any]] = None
-    value_payload: Optional[Dict[str, Any]] = None
+    physical_payload: dict[str, Any] | None = None
+    info_payload: dict[str, Any] | None = None
+    value_payload: dict[str, Any] | None = None
 
     # Metadata
     priority: float = 1.0
@@ -48,7 +48,7 @@ class CosmicPacket:
         return json.dumps(asdict(self), default=str)
 
     @classmethod
-    def from_json(cls, json_str: str) -> "CosmicPacket":
+    def from_json(cls, json_str: str) -> CosmicPacket:
         """
         Deserialize from JSON.
 

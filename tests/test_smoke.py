@@ -9,7 +9,6 @@ This is the FIRST gate before any detailed testing.
 from __future__ import annotations
 
 import importlib
-import sys
 
 import pytest
 
@@ -60,21 +59,25 @@ class TestBasicTypes:
     def test_cosmic_packet_exists(self):
         """CosmicPacket class is accessible."""
         from cosmic_mycelium.common.data_packet import CosmicPacket
+
         assert CosmicPacket is not None
 
     def test_physical_fingerprint_exists(self):
         """PhysicalFingerprint class is accessible."""
         from cosmic_mycelium.common.physical_fingerprint import PhysicalFingerprint
+
         assert PhysicalFingerprint is not None
 
     def test_hic_exists(self):
         """HIC class is accessible."""
         from cosmic_mycelium.infant.hic import HIC
+
         assert HIC is not None
 
     def test_sympnet_exists(self):
         """SympNetEngine class is accessible."""
         from cosmic_mycelium.infant.engines.engine_sympnet import SympNetEngine
+
         assert SympNetEngine is not None
 
 
@@ -84,18 +87,21 @@ class TestInstantiation:
     def test_instantiate_hic(self):
         """HIC can be instantiated with defaults."""
         from cosmic_mycelium.infant.hic import HIC
+
         hic = HIC()
         assert hic.energy > 0
 
     def test_instantiate_sympnet(self):
         """SympNetEngine can be instantiated."""
         from cosmic_mycelium.infant.engines.engine_sympnet import SympNetEngine
+
         engine = SympNetEngine()
         assert engine.mass == 1.0
 
     def test_instantiate_silicon_infant(self):
         """SiliconInfant can be instantiated."""
         from cosmic_mycelium.infant.main import SiliconInfant
+
         infant = SiliconInfant(infant_id="smoke-test-001")
         assert infant.infant_id == "smoke-test-001"
         assert infant.hic is not None
@@ -108,6 +114,7 @@ class TestPhysicalAnchorSmoke:
     def test_fingerprint_roundtrip(self):
         """Physical fingerprint: generate → verify must succeed."""
         from cosmic_mycelium.common.physical_fingerprint import PhysicalFingerprint
+
         data = {"smoke": "test", "value": 42}
         fp = PhysicalFingerprint.generate(data)
         assert PhysicalFingerprint.verify(data, fp) is True
@@ -115,6 +122,7 @@ class TestPhysicalAnchorSmoke:
     def test_sympnet_energy_positive(self):
         """SympNet energy is always positive."""
         from cosmic_mycelium.infant.engines.engine_sympnet import SympNetEngine
+
         engine = SympNetEngine()
         q, p = 1.0, 0.0
         for _ in range(100):
@@ -129,11 +137,13 @@ class TestPackageMetadata:
     def test_package_version_exists(self):
         """Package has a version string."""
         import cosmic_mycelium
+
         assert hasattr(cosmic_mycelium, "__version__")
         assert cosmic_mycelium.__version__ is not None
 
     def test_package_license(self):
         """Package declares AGPL-3.0 license."""
         import cosmic_mycelium
+
         assert hasattr(cosmic_mycelium, "__license__")
         assert cosmic_mycelium.__license__ == "AGPL-3.0"

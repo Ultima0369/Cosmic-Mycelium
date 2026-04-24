@@ -6,15 +6,16 @@ Placeholder for the hybrid RNN-Transformer temporal model.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+
 import numpy as np
 
 
 @dataclass
 class RNNTransformerState:
     """State of the RNN-Transformer."""
+
     hidden: np.ndarray
-    context: List[np.ndarray] = field(default_factory=list)
+    context: list[np.ndarray] = field(default_factory=list)
 
 
 class RNNTransformer:

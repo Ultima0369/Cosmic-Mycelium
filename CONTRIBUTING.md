@@ -45,7 +45,17 @@ pytest tests/test_smoke.py -v
 - 📚 `documentation` — 文档改进
 - 🧪 `test` — 测试覆盖率提升
 
-**新手友好标签**: `good first issue`, `help wanted`
+**新手友好标签**: `good-first-issue`, `help wanted`
+
+**Phase 4 开发重点** (当前 Sprint):
+- 🧪 Autonomous Research Loop (自主科研闭环)
+- 🔌 Skill Plugin System (技能插件系统)
+- 🧠 Vector Semantic Memory (向量语义记忆)
+- 🤝 Active Collective Participation (主动集群协同)
+
+详情见 [PHASE4_PROPOSAL.md](./PHASE4_PROPOSAL.md)。
+
+---
 
 ## 🔄 开发工作流
 
@@ -313,8 +323,25 @@ def test_energy():
 - 但复杂的算法需要额外的 `.md` 解释
 - 更新 `README.md` 如果用户可见行为改变
 - API 变更必须更新 `docs/api/` 中的文档
+- 新功能必须更新对应的 `docs/layers.md` 层级说明
 
-## 🎯 路线图贡献
+## 🗺️ 路线图
+
+当前开发阶段: **Phase 4 — 自主性与扩展性** (2026 Q2)
+
+| 阶段 | 目标 | 状态 |
+|------|------|------|
+| Phase 1 | HIC 安全底线 + 物理锚 | ✅ 完成 |
+| Phase 2 | 突显加权记忆 + 语义映射 | ✅ 完成 |
+| Phase 3 | 元认知悬置 + 世界模型蒸馏 + 价值对齐 | ✅ 完成 |
+| **Phase 4** | **自主科研闭环 + 技能插件 + 向量记忆 + 主动协同** | 🚀 进行中 |
+| Phase 5 | 多模态感知 + 开放-ended 目标生成 | 📋 规划中 |
+
+详细路线见 [PHASE4_PROPOSAL.md](./PHASE4_PROPOSAL.md)。
+
+---
+
+## 🎓 学习路径
 
 想参与大方向？查看 [ROADMAP.md](docs/ROADMAP.md)：
 

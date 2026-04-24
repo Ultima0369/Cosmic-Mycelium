@@ -11,10 +11,10 @@ from .layer_5_superbrain import SuperBrain
 from .layer_6_symbiosis_interface import SymbiosisInterface
 
 __all__ = [
-    "TimescaleSegmenter",
+    "MyelinationMemory",
     "SemanticMapper",
     "SlimeExplorer",
-    "MyelinationMemory",
     "SuperBrain",
     "SymbiosisInterface",
+    "TimescaleSegmenter",
 ]

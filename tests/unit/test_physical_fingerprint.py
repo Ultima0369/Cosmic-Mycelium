@@ -5,7 +5,6 @@ Tests fingerprint generation and verification.
 
 from __future__ import annotations
 
-import pytest
 from cosmic_mycelium.common.physical_fingerprint import PhysicalFingerprint
 
 
@@ -38,6 +37,7 @@ class TestPhysicalFingerprint:
         """Objects not JSON-serializable are converted via default=str."""
         # datetime objects, etc. should work via default=str
         import datetime
+
         data = {"timestamp": datetime.datetime(2026, 4, 22, 12, 0, 0)}
         fp = PhysicalFingerprint.generate(data)
         assert len(fp) == 16

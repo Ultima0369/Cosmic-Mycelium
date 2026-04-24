@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Dict, Any, Tuple
+from typing import Any
 
 
 class PhysicalFingerprint:
@@ -20,7 +20,7 @@ class PhysicalFingerprint:
     """
 
     @staticmethod
-    def generate(data: Dict[str, Any]) -> str:
+    def generate(data: dict[str, Any]) -> str:
         """
         Generate a fingerprint from data.
 
@@ -31,7 +31,7 @@ class PhysicalFingerprint:
         return full_hash[:16]
 
     @staticmethod
-    def verify(data: Dict[str, Any], fingerprint: str) -> bool:
+    def verify(data: dict[str, Any], fingerprint: str) -> bool:
         """
         Verify data matches fingerprint.
         Returns True if fingerprint is valid for this data.
@@ -39,7 +39,7 @@ class PhysicalFingerprint:
         return PhysicalFingerprint.generate(data) == fingerprint
 
     @staticmethod
-    def fingerprint_pair(a: Dict[str, Any], b: Dict[str, Any]) -> Tuple[str, str]:
+    def fingerprint_pair(a: dict[str, Any], b: dict[str, Any]) -> tuple[str, str]:
         """
         Generate fingerprints for a pair of data items.
         Useful for verifying two parties have the same physical fact.
@@ -50,7 +50,7 @@ class PhysicalFingerprint:
         )
 
     @staticmethod
-    def fingerprints_equal(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
+    def fingerprints_equal(a: dict[str, Any], b: dict[str, Any]) -> bool:
         """
         Check if two data items have the same fingerprint.
         """

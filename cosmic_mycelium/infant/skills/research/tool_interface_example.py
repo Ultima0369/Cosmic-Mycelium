@@ -46,13 +46,17 @@ class ResonateTool:
 
     def execute(self, node_id: str, duration: float = 5.0) -> Dict[str, Any]:
         """
-        实际调用逻辑（未来将连接 SymbiosisInterface）：
-        1. 向 node_id 发送 VALUE_PROPOSAL
+        Placeholder example — returns simulated resonance scores.
+
+        Phase 4.3 integration plan:
+        1. 向 node_id 发送 VALUE_PROPOSAL via SymbiosisInterface
         2. 等待响应（超时 duration）
         3. 计算 1+1>2 收益
         4. 返回共振结果
+
+        Currently returns stub data for tool interface demonstration only.
         """
-        # TODO: Phase 4.3 集成真实的 SymbiosisInterface
+        # Phase 4.3: replace stub with real SymbiosisInterface call
         return {
             "success": True,
             "node_id": node_id,

@@ -6,6 +6,7 @@ Tests the singleton configuration provider for infant/cluster/global scales.
 from __future__ import annotations
 
 import pytest
+
 from cosmic_mycelium.common.config_manager import ConfigManager
 
 
@@ -96,8 +97,15 @@ class TestConfigManagerScopes:
         cm = ConfigManager.for_infant()
         d = cm.as_dict()
         infant_cfg = d["infant"]
-        expected = {"params", "abstract_segmenter", "semantic_mapper",
-                    "slime_explorer", "myelination", "superbrain", "symbiosis"}
+        expected = {
+            "params",
+            "abstract_segmenter",
+            "semantic_mapper",
+            "slime_explorer",
+            "myelination",
+            "superbrain",
+            "symbiosis",
+        }
         assert expected.issubset(infant_cfg.keys())
 
     def test_cluster_superbrain_has_consensus_region(self):

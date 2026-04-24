@@ -6,13 +6,13 @@ Tests partner perception, proposal handling, human/machine explanations, mode ma
 from __future__ import annotations
 
 import time
-from unittest.mock import patch
+
 import pytest
+
 from cosmic_mycelium.infant.core.layer_6_symbiosis_interface import (
-    SymbiosisInterface,
     InteractionMode,
-    Partner,
     PartnershipStatus,
+    SymbiosisInterface,
 )
 
 
@@ -73,7 +73,9 @@ class TestPartnerPerception:
     def test_perceive_partner_registers_new_partner(self):
         """Unknown partner creates Partner entry."""
         interface = SymbiosisInterface("node-1")
-        interface.perceive_partner("partner-42", trust=0.7, mode=InteractionMode.LISTENING)
+        interface.perceive_partner(
+            "partner-42", trust=0.7, mode=InteractionMode.LISTENING
+        )
 
         assert "partner-42" in interface.partners
         p = interface.partners["partner-42"]
@@ -93,6 +95,7 @@ class TestPartnerPerception:
     def test_perceive_partner_records_last_seen(self):
         """last_seen timestamp is updated."""
         import time
+
         interface = SymbiosisInterface("node-1")
         before = time.time()
         interface.perceive_partner("p", trust=0.5)
@@ -291,7 +294,9 @@ class TestTrustDecay:
 
     def test_trust_decay_applies_when_enabled(self):
         """Trust decays exponentially when enabled and idle time exceeds threshold."""
-        interface = SymbiosisInterface("node-1", trust_decay_enabled=True, trust_decay_hours=1.0)
+        interface = SymbiosisInterface(
+            "node-1", trust_decay_enabled=True, trust_decay_hours=1.0
+        )
         interface.perceive_partner("p", trust=0.8)
         partner = interface.partners["p"]
         # Set last_seen 2 hours ago (exceeds 1 hour threshold)
@@ -407,7 +412,7 @@ class TestAcceptProposal:
     def test_accept_proposal_creates_missing_partner(self):
         """Accepting from unknown partner creates Partner entry."""
         interface = SymbiosisInterface("node-1")
-        result = interface.accept_proposal("new-partner", increase=0.1)
+        interface.accept_proposal("new-partner", increase=0.1)
 
         assert "new-partner" in interface.partners
         # Partner starts with trust 0.5, increase 0.1 → 0.6
@@ -467,7 +472,9 @@ class TestExpireNegotiations:
     def test_expire_negotiations_removes_expired_pending(self):
         """Expired pending negotiations are removed from active_negotiations."""
         interface = SymbiosisInterface("node-1")
-        proposal = interface.propose_value("test", {}, "p", expiry=0.01)  # Expires very soon
+        proposal = interface.propose_value(
+            "test", {}, "p", expiry=0.01
+        )  # Expires very soon
         # Wait for expiry
         time.sleep(0.02)
         count = interface.expire_negotiations()
@@ -535,7 +542,9 @@ class TestProcessInboxMessageTypes:
     def test_process_inbox_value_proposal_queues_pending_request(self):
         """VALUE_PROPOSAL messages queue in pending_requests."""
         interface = SymbiosisInterface("node-1")
-        interface.inbox = [{"type": "VALUE_PROPOSAL", "from": "p1", "content": {"x": 1}}]
+        interface.inbox = [
+            {"type": "VALUE_PROPOSAL", "from": "p1", "content": {"x": 1}}
+        ]
         interface.process_inbox()
 
         assert len(interface.pending_requests) == 1
@@ -548,7 +557,13 @@ class TestProcessInboxMessageTypes:
         interface = SymbiosisInterface("node-1")
         interface.perceive_partner("p", trust=0.5)
         prop = interface.propose_value("share", {}, "p")
-        interface.inbox = [{"type": "PROPOSAL_ACCEPTED", "proposal_id": prop["proposal_id"], "from": "p"}]
+        interface.inbox = [
+            {
+                "type": "PROPOSAL_ACCEPTED",
+                "proposal_id": prop["proposal_id"],
+                "from": "p",
+            }
+        ]
         interface.process_inbox()
 
         neg = interface.active_negotiations[prop["proposal_id"]]
@@ -561,7 +576,13 @@ class TestProcessInboxMessageTypes:
         interface.perceive_partner("p", trust=0.5)
         interface.partners["p"].quality_score = 0.5
         prop = interface.propose_value("share", {}, "p")
-        interface.inbox = [{"type": "PROPOSAL_REJECTED", "proposal_id": prop["proposal_id"], "from": "p"}]
+        interface.inbox = [
+            {
+                "type": "PROPOSAL_REJECTED",
+                "proposal_id": prop["proposal_id"],
+                "from": "p",
+            }
+        ]
         interface.process_inbox()
 
         neg = interface.active_negotiations[prop["proposal_id"]]
@@ -572,7 +593,13 @@ class TestProcessInboxMessageTypes:
         """PROPOSAL_ACCEPTED handles unknown partner gracefully."""
         interface = SymbiosisInterface("node-1")
         prop = interface.propose_value("share", {}, "unknown")
-        interface.inbox = [{"type": "PROPOSAL_ACCEPTED", "proposal_id": prop["proposal_id"], "from": "unknown"}]
+        interface.inbox = [
+            {
+                "type": "PROPOSAL_ACCEPTED",
+                "proposal_id": prop["proposal_id"],
+                "from": "unknown",
+            }
+        ]
         interface.process_inbox()  # Should not crash
         neg = interface.active_negotiations[prop["proposal_id"]]
         assert neg.status == "committed"
@@ -581,7 +608,13 @@ class TestProcessInboxMessageTypes:
         """PROPOSAL_REJECTED handles unknown partner gracefully."""
         interface = SymbiosisInterface("node-1")
         prop = interface.propose_value("share", {}, "unknown")
-        interface.inbox = [{"type": "PROPOSAL_REJECTED", "proposal_id": prop["proposal_id"], "from": "unknown"}]
+        interface.inbox = [
+            {
+                "type": "PROPOSAL_REJECTED",
+                "proposal_id": prop["proposal_id"],
+                "from": "unknown",
+            }
+        ]
         interface.process_inbox()  # Should not crash
         neg = interface.active_negotiations[prop["proposal_id"]]
         assert neg.status == "rejected"
@@ -631,7 +664,9 @@ class TestPartnerQueries:
         # Second perceive makes "old" ACTIVE (first perception gives PROSPECT)
         interface.perceive_partner("old", trust=0.5)
         # Now set last_seen far in the past
-        interface.partners["old"].last_seen = time.time() - (48 * 3600 + 1)  # 48+ hours ago
+        interface.partners["old"].last_seen = time.time() - (
+            48 * 3600 + 1
+        )  # 48+ hours ago
 
         stalled = interface.get_stalled_partners(hours_threshold=48.0)
         names = [p.partner_id for p in stalled]
@@ -664,7 +699,10 @@ class TestSeverPartnership:
         interface = SymbiosisInterface("node-1")
         interface.perceive_partner("p", trust=0.5)
         interface.sever_partnership("p", reason="inactivity")
-        assert any("Severed partnership" in entry and "inactivity" in entry for entry in interface.history)
+        assert any(
+            "Severed partnership" in entry and "inactivity" in entry
+            for entry in interface.history
+        )
 
 
 class TestExplanation:
@@ -723,4 +761,3 @@ class TestStatusCompleteness:
         assert "interactions" in pstatus
         assert "status" in pstatus
         assert "quality_score" in pstatus
-

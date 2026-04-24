@@ -10,7 +10,7 @@ import time
 from typing import Any
 
 from cosmic_mycelium.infant.knowledge_store import KnowledgeStore
-from cosmic_mycelium.infant.skills.base import InfantSkill, SkillContext, SkillExecutionError
+from cosmic_mycelium.infant.skills.base import InfantSkill, ParallelismPolicy, SkillContext, SkillExecutionError
 from cosmic_mycelium.infant.skills.research.experiment_designer import ExperimentDesigner
 from cosmic_mycelium.infant.skills.research.question_generator import QuestionGenerator
 
@@ -33,6 +33,7 @@ class ResearchSkill(InfantSkill):
     version = "1.0.0"
     description = "Autonomous research loop: question → experiment → knowledge"
     dependencies = []  # research 是顶层技能，无依赖
+    parallelism_policy = ParallelismPolicy.ISOLATED  # Sprint 5: KnowledgeStore now thread-safe
 
     def __init__(self, knowledge_store: KnowledgeStore | None = None):
         self.knowledge = knowledge_store

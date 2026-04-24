@@ -6,15 +6,17 @@ Covers: P1-P10 (initialization, breath cycle, suspend, value vector, thread safe
 
 from __future__ import annotations
 
-import time
 import threading
-import pytest
-from cosmic_mycelium.infant.hic import HIC, HICConfig, BreathState
+import time
 
+import pytest
+
+from cosmic_mycelium.infant.hic import HIC, BreathState, HICConfig
 
 # =============================================================================
 # P1: Initialization & Construction
 # =============================================================================
+
 
 class TestHICInitialization:
     """Tests for HIC construction and initial state."""
@@ -61,6 +63,7 @@ class TestHICInitialization:
 # =============================================================================
 # P2: Breath Cycle & State Transitions
 # =============================================================================
+
 
 class TestBreathCycle:
     """Tests for CONTRACT ↔ DIFFUSE ↔ SUSPEND transitions."""
@@ -146,6 +149,7 @@ class TestBreathCycle:
 # =============================================================================
 # P3: SUSPEND Logic & Recovery
 # =============================================================================
+
 
 class TestSuspendLogic:
     """Tests for SUSPEND entry, hold, and recovery."""
@@ -246,7 +250,7 @@ class TestSuspendLogic:
             recovery_energy=60.0,
         )
         h = HIC(config=config)
-        h._energy = 5.0
+        h._energy = 15.0  # Above absolute_min (5), below suspend_enter_threshold (20) → regular SUSPEND
         h.update_breath(confidence=0.7, work_done=False)
         assert h.state == BreathState.SUSPEND
 
@@ -276,6 +280,7 @@ class TestSuspendLogic:
 # =============================================================================
 # P4: Value Vector Adaptation
 # =============================================================================
+
 
 class TestValueVectorAdaptation:
     """Tests for value vector mutations."""
@@ -337,6 +342,7 @@ class TestValueVectorAdaptation:
 # P5: SUSPEND Packet Generation
 # =============================================================================
 
+
 class TestSuspendPacket:
     """Tests for get_suspend_packet()."""
 
@@ -383,6 +389,7 @@ class TestSuspendPacket:
 # P6: Status Reporting
 # =============================================================================
 
+
 class TestStatusReporting:
     """Tests for get_status() consistency."""
 
@@ -391,9 +398,16 @@ class TestStatusReporting:
         h = HIC()
         status = h.get_status()
         required = {
-            "energy", "energy_max", "state", "total_cycles",
-            "suspend_count", "adaptation_count", "value_vector",
-            "contract_duration", "diffuse_duration", "suspend_duration",
+            "energy",
+            "energy_max",
+            "state",
+            "total_cycles",
+            "suspend_count",
+            "adaptation_count",
+            "value_vector",
+            "contract_duration",
+            "diffuse_duration",
+            "suspend_duration",
         }
         assert required.issubset(status.keys())
 
@@ -416,6 +430,7 @@ class TestStatusReporting:
 # =============================================================================
 # P7: Thread Safety & Concurrency
 # =============================================================================
+
 
 class TestThreadSafety:
     """Tests for RLock-protected state mutations."""
@@ -535,6 +550,7 @@ class TestThreadSafety:
 # P8: Edge Cases & Invariants
 # =============================================================================
 
+
 class TestEdgeCases:
     """Edge-case and invariant tests."""
 
@@ -604,10 +620,64 @@ class TestEdgeCases:
         mock_time.advance(-1000)
         assert h.suspend_remaining >= 0.0
 
+    # ─── Phase 5.0: Hysteresis & Dormant State Tests ───────────────────────
+    def test_dormant_state_triggered_at_absolute_min(self):
+        """Energy at or below absolute_min (5) triggers dormant SUSPEND."""
+        h = HIC()
+        h._energy = 5.0
+        h.update_breath(confidence=0.7, work_done=False)
+        assert h.state == BreathState.SUSPEND
+        assert h._dormant_state is True
+
+    def test_dormant_state_exits_only_when_energy_above_exit_and_confidence_high(self):
+        """Dormant state only exits when energy >= exit_threshold (25) and confidence high."""
+        h = HIC()
+        h._energy = 5.0
+        h.update_breath(confidence=0.7, work_done=False)
+        assert h._dormant_state is True
+        # Energy still low → remains dormant
+        h._energy = 20.0
+        h.update_breath(confidence=0.8, work_done=False)
+        assert h._dormant_state is True
+        assert h.state == BreathState.SUSPEND
+        # Raise energy above exit threshold, confidence high → exit dormant
+        h._energy = 26.0
+        h.update_breath(confidence=0.8, work_done=False)
+        assert h._dormant_state is False
+        assert h.state == BreathState.CONTRACT
+
+    def test_hysteresis_gap_energy_between_thresholds_stays_suspended(self):
+        """Energy between enter (20) and exit (25) thresholds remains SUSPEND once triggered."""
+        h = HIC()
+        # First, trigger SUSPEND with energy below enter threshold
+        h._energy = 15.0
+        h.update_breath(confidence=0.7, work_done=False)
+        assert h.state == BreathState.SUSPEND
+        # Now raise energy into hysteresis gap (22-24) — should remain SUSPEND
+        h._energy = 22.0
+        h.update_breath(confidence=0.8, work_done=False)
+        assert h.state == BreathState.SUSPEND
+        h._energy = 24.0
+        h.update_breath(confidence=0.9, work_done=False)
+        assert h.state == BreathState.SUSPEND
+
+    def test_hysteresis_exits_when_energy_and_confidence_above_exit_thresholds(self):
+        """SUSPEND exits when both energy >= 25 and confidence >= 0.5."""
+        h = HIC()
+        h._energy = 15.0  # below enter threshold
+        h.update_breath(confidence=0.7, work_done=False)
+        assert h.state == BreathState.SUSPEND
+        # Raise energy above exit threshold, confidence also high
+        h._energy = 26.0
+        h.update_breath(confidence=0.6, work_done=False)
+        assert h.state == BreathState.CONTRACT
+
+
 
 # =============================================================================
 # P9: Metrics & Observability
 # =============================================================================
+
 
 class TestMetrics:
     """Tests for counter and metric accuracy."""
@@ -657,6 +727,7 @@ class TestMetrics:
 # =============================================================================
 # P10: Property Accessors
 # =============================================================================
+
 
 class TestProperties:
     """Tests for read-only properties."""

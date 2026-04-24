@@ -10,23 +10,23 @@ import math
 import random
 import time
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Tuple
 from enum import Enum
 
 
 class SensorType(Enum):
-    VIBRATION = "vibration"    # Seismic/mechanical waves (Hz, amplitude)
+    VIBRATION = "vibration"  # Seismic/mechanical waves (Hz, amplitude)
     TEMPERATURE = "temperature"  # Celsius
-    SPECTRUM = "spectrum"      # Light frequency distribution (nm, intensity)
+    SPECTRUM = "spectrum"  # Light frequency distribution (nm, intensity)
 
 
 @dataclass
 class SensorReading:
     """A single sensor reading at a timestamp."""
+
     timestamp: float
     sensor_id: str
     value: float
-    metadata: Optional[Dict] = None
+    metadata: dict | None = None
 
 
 @dataclass
@@ -41,26 +41,28 @@ class SensorArray:
     """
 
     # Configuration
-    vibration_base_freq: float = 50.0      # Hz (mains hum)
-    vibration_amplitude: float = 0.1       # Base amplitude
-    temperature_mean: float = 22.0         # Celsius (room temp)
-    temperature_variation: float = 2.0     # Daily cycle amplitude
-    spectrum_peaks: list[Tuple[float, float]] = field(default_factory=lambda: [
-        (450.0, 0.8),   # Blue peak (nm)
-        (550.0, 1.0),   # Green peak (nm)
-        (650.0, 0.6),   # Red peak (nm)
-    ])
+    vibration_base_freq: float = 50.0  # Hz (mains hum)
+    vibration_amplitude: float = 0.1  # Base amplitude
+    temperature_mean: float = 22.0  # Celsius (room temp)
+    temperature_variation: float = 2.0  # Daily cycle amplitude
+    spectrum_peaks: list[tuple[float, float]] = field(
+        default_factory=lambda: [
+            (450.0, 0.8),  # Blue peak (nm)
+            (550.0, 1.0),  # Green peak (nm)
+            (650.0, 0.6),  # Red peak (nm)
+        ]
+    )
 
     # Internal state
     _start_time: float = field(init=False, default_factory=time.time)
-    _last_values: Dict[str, float] = field(init=False, default_factory=dict)
-    _active_events: list[Dict] = field(init=False, default_factory=list)
+    _last_values: dict[str, float] = field(init=False, default_factory=dict)
+    _active_events: list[dict] = field(init=False, default_factory=list)
     _rng: random.Random = field(init=False)
 
     def __post_init__(self):
         self._rng = random.Random(42)  # Deterministic for tests
 
-    def read_all(self) -> Dict[str, float]:
+    def read_all(self) -> dict[str, float]:
         """
         Read all sensors and return current physical state dict.
 
@@ -71,10 +73,7 @@ class SensorArray:
         elapsed = now - self._start_time
 
         # Clean up expired events
-        self._active_events = [
-            e for e in self._active_events
-            if e["end_time"] > now
-        ]
+        self._active_events = [e for e in self._active_events if e["end_time"] > now]
 
         # Compute event boosts per sensor type
         event_boost = {"vibration": 0.0, "temperature": 0.0, "spectrum_power": 0.0}
@@ -85,23 +84,36 @@ class SensorArray:
 
         # Vibration: base sine + amplitude modulation + noise + event boost
         # Signed signal — physical displacement can be positive or negative
-        vib_base = self.vibration_amplitude * math.sin(2 * math.pi * self.vibration_base_freq * elapsed)
-        vib_mod = 0.3 * math.sin(2 * math.pi * 0.5 * elapsed)  # Slow amplitude modulation
+        vib_base = self.vibration_amplitude * math.sin(
+            2 * math.pi * self.vibration_base_freq * elapsed
+        )
+        vib_mod = 0.3 * math.sin(
+            2 * math.pi * 0.5 * elapsed
+        )  # Slow amplitude modulation
         vib_noise = self._rng.gauss(0, 0.02)
         vibration = vib_base * (1 + vib_mod) + vib_noise + event_boost["vibration"]
 
         # Temperature: daily cycle + noise + event boost
-        daily_cycle = self.temperature_variation * math.sin(2 * math.pi * elapsed / 86400)
+        daily_cycle = self.temperature_variation * math.sin(
+            2 * math.pi * elapsed / 86400
+        )
         temp_noise = self._rng.gauss(0, 0.1)
-        temperature = self.temperature_mean + daily_cycle + temp_noise + event_boost["temperature"]
+        temperature = (
+            self.temperature_mean
+            + daily_cycle
+            + temp_noise
+            + event_boost["temperature"]
+        )
 
         # Spectrum: sum of Gaussian peaks + noise + event boost
         total_power = 0.0
-        for peak_nm, peak_intensity in self.spectrum_peaks:
+        for _peak_nm, peak_intensity in self.spectrum_peaks:
             power = peak_intensity * math.exp(-((elapsed % 10) ** 2) / 2)
             total_power += power
         spectrum_noise = self._rng.uniform(0, 0.05)
-        spectrum_power = max(0.0, total_power + spectrum_noise + event_boost["spectrum_power"])
+        spectrum_power = max(
+            0.0, total_power + spectrum_noise + event_boost["spectrum_power"]
+        )
 
         self._last_values = {
             "vibration": vibration,
@@ -110,6 +122,85 @@ class SensorArray:
         }
 
         return self._last_values.copy()
+
+    def read_active(self, attention_mask: set[str] | None = None) -> dict[str, float]:
+        """
+        Phase 5.2: Selective sensing — only refresh sensors in attention_mask.
+        Others return cached last values (no new computation).
+
+        Args:
+            attention_mask: Set of sensor names to sample freshly.
+                            If None or empty, behaves like read_all().
+
+        Returns:
+            Dict with keys: vibration, temperature, spectrum_power
+        """
+        if not attention_mask:
+            # No selective constraint — read everything
+            return self.read_all()
+
+        # Start from cached values (no refresh yet)
+        values = self._last_values.copy()
+
+        # Only recompute sensors in the mask
+        now = time.time()
+        elapsed = now - self._start_time
+
+        # Clean up expired events once per call (shared state)
+        self._active_events = [e for e in self._active_events if e["end_time"] > now]
+
+        # Compute event boosts (same for all sensors this cycle)
+        event_boost = {"vibration": 0.0, "temperature": 0.0, "spectrum_power": 0.0}
+        for event in self._active_events:
+            sensor_key = event["sensor_type"].value
+            if sensor_key in event_boost:
+                event_boost[sensor_key] += event["magnitude"]
+
+        # Helper: compute vibration
+        def _compute_vibration() -> float:
+            vib_base = self.vibration_amplitude * math.sin(
+                2 * math.pi * self.vibration_base_freq * elapsed
+            )
+            vib_mod = 0.3 * math.sin(2 * math.pi * 0.5 * elapsed)
+            vib_noise = self._rng.gauss(0, 0.02)
+            return vib_base * (1 + vib_mod) + vib_noise + event_boost["vibration"]
+
+        # Helper: compute temperature
+        def _compute_temperature() -> float:
+            daily_cycle = self.temperature_variation * math.sin(
+                2 * math.pi * elapsed / 86400
+            )
+            temp_noise = self._rng.gauss(0, 0.1)
+            return (
+                self.temperature_mean
+                + daily_cycle
+                + temp_noise
+                + event_boost["temperature"]
+            )
+
+        # Helper: compute spectrum
+        def _compute_spectrum() -> float:
+            total_power = 0.0
+            for _peak_nm, peak_intensity in self.spectrum_peaks:
+                power = peak_intensity * math.exp(-((elapsed % 10) ** 2) / 2)
+                total_power += power
+            spectrum_noise = self._rng.uniform(0, 0.05)
+            return max(0.0, total_power + spectrum_noise + event_boost["spectrum_power"])
+
+        # Update only selected sensors
+        if "vibration" in attention_mask:
+            values["vibration"] = _compute_vibration()
+        if "temperature" in attention_mask:
+            values["temperature"] = _compute_temperature()
+        if "spectrum_power" in attention_mask:
+            values["spectrum_power"] = _compute_spectrum()
+
+        # Update _last_values only for sensors we refreshed (ignore unknown keys)
+        for key in attention_mask:
+            if key in values:
+                self._last_values[key] = values[key]
+
+        return values
 
     def get_reading(self, sensor_type: SensorType) -> SensorReading:
         """Get a single sensor reading with timestamp."""
@@ -120,7 +211,9 @@ class SensorArray:
             value=values[sensor_type.value],
         )
 
-    def inject_event(self, sensor_type: SensorType, magnitude: float, duration: float) -> None:
+    def inject_event(
+        self, sensor_type: SensorType, magnitude: float, duration: float
+    ) -> None:
         """
         Inject an external event (e.g., touch, flash, sound).
 
@@ -129,13 +222,15 @@ class SensorArray:
             magnitude: Event strength (added to baseline)
             duration: How long the event lasts (seconds)
         """
-        self._active_events.append({
-            "sensor_type": sensor_type,
-            "magnitude": magnitude,
-            "end_time": time.time() + duration,
-        })
+        self._active_events.append(
+            {
+                "sensor_type": sensor_type,
+                "magnitude": magnitude,
+                "end_time": time.time() + duration,
+            }
+        )
 
-    def get_status(self) -> Dict:
+    def get_status(self) -> dict:
         """Return sensor array status for monitoring."""
         readings = self.read_all()
         return {

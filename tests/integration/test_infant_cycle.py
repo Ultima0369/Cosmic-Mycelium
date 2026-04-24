@@ -8,9 +8,9 @@ from __future__ import annotations
 import time
 import tracemalloc
 from unittest.mock import patch
-import pytest
-from cosmic_mycelium.infant.main import SiliconInfant
+
 from cosmic_mycelium.infant.hic import BreathState
+from cosmic_mycelium.infant.main import SiliconInfant
 
 
 class TestInfantLifecycle:
@@ -29,7 +29,16 @@ class TestInfantLifecycle:
         infant.run(max_cycles=5)
         status = infant.get_status()
 
-        required_keys = {"infant_id", "uptime", "hic", "sympnet", "memory", "brain", "interface", "log_tail"}
+        required_keys = {
+            "infant_id",
+            "uptime",
+            "hic",
+            "sympnet",
+            "memory",
+            "brain",
+            "interface",
+            "log_tail",
+        }
         assert required_keys.issubset(status.keys())
 
     def test_hic_status_integrated(self):
@@ -110,9 +119,9 @@ class TestInfantLifecycle:
         """SUSPEND state recovers exactly after suspend_duration with recovery_energy."""
         # This test verifies M2 milestone: suspend → 5s recovery → energy restored
         infant = SiliconInfant("suspend-recovery-test")
-        # Force very low energy to trigger SUSPEND on first update_breath call
-        with patch.object(infant.hic, '_lock'):
-            infant.hic._energy = 5.0  # Below 20.0 SUSPEND threshold
+        # Force low energy (above absolute_min but below suspend threshold) to trigger normal SUSPEND
+        with patch.object(infant.hic, "_lock"):
+            infant.hic._energy = 15.0  # Above absolute_min (5.0), below suspend_enter (20.0)
 
         initial_suspend_count = infant.hic.suspend_count
 
@@ -123,7 +132,7 @@ class TestInfantLifecycle:
         suspend_end_time = infant.hic._suspend_end_time
 
         # Advance time past suspend_end_time by patching monotonic
-        with patch('time.monotonic', return_value=suspend_end_time + 0.1):
+        with patch("time.monotonic", return_value=suspend_end_time + 0.1):
             # Second call: should recover from SUSPEND
             infant.hic.update_breath(confidence=0.9, work_done=False)
             # After recovery: state should be CONTRACT, energy set to recovery_energy (60.0)
@@ -149,6 +158,7 @@ class TestInfantLifecycle:
         infant = SiliconInfant("test-infant")
         status1 = infant.get_status()
         import time
+
         time.sleep(0.1)
         status2 = infant.get_status()
         assert status2["uptime"] > status1["uptime"]
@@ -176,13 +186,13 @@ class TestInfantLifecycle:
         # Capture baseline before many cycles
         baseline = tracemalloc.take_snapshot()
         # Run 500 cycles with sleep mocked to avoid wall-clock delay
-        with patch('time.sleep', return_value=None):
+        with patch("time.sleep", return_value=None):
             infant.run(max_cycles=500)
         # Take another snapshot
         after = tracemalloc.take_snapshot()
         tracemalloc.stop()
         # Compare memory stats — allow some growth but not unbounded
-        stats = after.compare_to(baseline, 'lineno')
+        stats = after.compare_to(baseline, "lineno")
         total_growth = sum(stat.size_diff for stat in stats)
         # Allow up to 10MB growth over 500 cycles (generous)
         assert total_growth < 10 * 1024 * 1024, f"Memory grew by {total_growth} bytes"
@@ -215,4 +225,3 @@ class TestInfantLifecycle:
             # Values should be physically plausible
             assert -1.0 <= perception["physical"]["q"] <= 1.0
             assert -1.0 <= perception["physical"]["p"] <= 1.0
-

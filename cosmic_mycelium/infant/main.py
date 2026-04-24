@@ -12,11 +12,12 @@ This is the minimal viable implementation that demonstrates:
 
 from __future__ import annotations
 
+import json
 import logging
 import random
 import time
 from collections import deque
-from contextlib import suppress
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -31,6 +32,7 @@ from cosmic_mycelium.cluster.consensus import ValueAlignment
 from cosmic_mycelium.cluster.node_discovery import NodeDiscovery
 from cosmic_mycelium.common.data_packet import CosmicPacket
 from cosmic_mycelium.common.physical_fingerprint import PhysicalFingerprint
+from cosmic_mycelium.infant.core.layer_1_timescale_segmenter import TimescaleSegmenter
 from cosmic_mycelium.infant.core.layer_2_semantic_mapper import SemanticMapper
 from cosmic_mycelium.infant.core.layer_3_slime_explorer import SlimeExplorer
 from cosmic_mycelium.infant.core.layer_4_myelination_memory import MyelinationMemory
@@ -39,6 +41,8 @@ from cosmic_mycelium.infant.core.layer_6_symbiosis_interface import (
     InteractionMode,
     SymbiosisInterface,
 )
+from cosmic_mycelium.infant.core.active_perception import ActivePerceptionGate
+from cosmic_mycelium.infant.core.embodied_loop import SensorimotorContingencyLearner
 from cosmic_mycelium.infant.engines.engine_bitnet import BitNetAdapter
 from cosmic_mycelium.infant.engines.engine_lnn import LNNEngine
 from cosmic_mycelium.infant.engines.engine_sympnet import SympNetEngine
@@ -67,6 +71,13 @@ class SiliconInfant:
     Exhibits: breathing, self-adaptation, memory formation, symbiosis.
     """
 
+    # Energy costs for neural operations (deducted from HIC budget)
+    LNN_ENERGY_COST: float = 0.5       # per LNN prediction
+    BITNET_ENERGY_COST: float = 2.0    # per BitNet reasoning (expensive!)
+    THEIA_ENERGY_COST: float = 1.0     # per THEIA intuition check
+    PERCEPTION_ENERGY_COST: float = 0.1
+    ACTION_ENERGY_COST: float = 0.3
+
     def __init__(
         self,
         infant_id: str,
@@ -75,6 +86,17 @@ class SiliconInfant:
         self.infant_id = infant_id
         self.config = config or {}
 
+        self._init_energy_system(self.config)
+        self._init_cluster_services(self.config)
+        self._init_research_loop(self.config)
+        self._init_skill_system(self.config)
+        self._init_embodied_cognition(self.config)
+        self._init_runtime_state(self.config)
+        self._init_neural_engines(self.config)
+
+        self._log(f"Infant '{self.infant_id}' initialized. Energy: {self.hic.energy}")
+
+    def _init_energy_system(self, config) -> None:
         # Core components
         self.hic = HIC(
             config=HICConfig(
@@ -85,27 +107,30 @@ class SiliconInfant:
                 recovery_energy=self.config.get("recovery_energy", 60.0),
                 recovery_rate=self.config.get("recovery_rate", 0.5),
             ),
-            name=f"hic-{infant_id}",
+            name=f"hic-{self.infant_id}",
         )
         self.sympnet = SympNetEngine()
+        # Layer 1: TimescaleSegmenter — multi-scale time/space segmentation
+        self.layer_1_segmenter = TimescaleSegmenter()
         # Layer 2: Semantic Mapper — maps physical → semantic concepts
         embedding_dim = self.config.get("embedding_dim", 16)
         self.semantic_mapper = SemanticMapper(embedding_dim=embedding_dim)
         self.explorer = SlimeExplorer(num_spores=self.config.get("num_spores", 10))
         self.memory = MyelinationMemory(semantic_mapper=self.semantic_mapper)
         self.brain = SuperBrain()
-        self.interface = SymbiosisInterface(infant_id)
-        self.collective = CollectiveIntelligence(infant_id)
+        self.interface = SymbiosisInterface(self.infant_id)
+        self.collective = CollectiveIntelligence(self.infant_id)
 
         # Phase 4.2.1: Feature Manager — Hermes-inspired skill extraction & myelination
         # 借鉴 Hermes 的"技能创造"和"跨会话记忆"，将成功路径提炼为特征码
-        self.feature_manager = FeatureManager(infant_id, semantic_mapper=self.semantic_mapper)
+        self.feature_manager = FeatureManager(self.infant_id, semantic_mapper=self.semantic_mapper)
         # 当前任务轨迹记录（用于事后提炼特征码）
         self._current_task_trace: list[dict[str, Any]] = []
         self._current_task_success: bool = False
         # Cross-cycle saliency boost (e.g., from value resonance) — IMP-06
         self._current_saliency: float = 1.0
 
+    def _init_cluster_services(self, config) -> None:
         # Cluster: node discovery service (enabled in cluster mode)
         self.node_manager: Any | None = None  # set by MyceliumNetwork.join
         self.discovery: NodeDiscovery | None = None
@@ -113,7 +138,7 @@ class SiliconInfant:
             self.discovery = NodeDiscovery(self)
 
         # Monitoring: distributed tracing + metrics
-        self._tracer = DistributedTracer(service_name=f"infant-{infant_id}")
+        self._tracer = DistributedTracer(service_name=f"infant-{self.infant_id}")
         self._metrics_collector = MetricsCollector()
 
         # SEC-004: Rate limiting per source_id
@@ -122,6 +147,7 @@ class SiliconInfant:
             default_capacity=self.config.get("rate_limit_burst", 20.0),
         )
 
+    def _init_research_loop(self, config) -> None:
         # Phase 4.1: Research loop — knowledge store + question generator + experimenter
         self._research_enabled = self.config.get("research_enabled", False)
         if self._research_enabled:
@@ -134,7 +160,7 @@ class SiliconInfant:
             )
 
             self.knowledge_store = KnowledgeStore(
-                infant_id, self.semantic_mapper
+                self.infant_id, self.semantic_mapper
             )
             self.question_generator = QuestionGenerator(self.knowledge_store)
             self.experiment_designer = ExperimentDesigner()
@@ -143,6 +169,7 @@ class SiliconInfant:
             self.question_generator = None
             self.experiment_designer = None
 
+    def _init_skill_system(self, config) -> None:
         # Phase 4.3: Skill Plugin System — load, inject, initialize
         self.skill_registry = SkillRegistry()
         self.skill_loader = SkillLoader(self.skill_registry)
@@ -165,9 +192,15 @@ class SiliconInfant:
         )
         self.skill_registry.initialize_all(init_ctx)
 
+    def _init_embodied_cognition(self, config) -> None:
         # Sensor array — real-world multi-modal perception
         self.sensors = SensorArray()
+        # Phase 5.1: Sensorimotor contingency learner
+        self._sensorimotor_learner = SensorimotorContingencyLearner()
+        # Phase 5.1-2: Active perception gate
+        self._active_perception_gate = ActivePerceptionGate()
 
+    def _init_runtime_state(self, config) -> None:
         # Physical state (derived from sensors, cached)
         self.state = {"q": 1.0, "p": 0.0}
         self._last_perception: dict | None = None
@@ -193,6 +226,7 @@ class SiliconInfant:
         self._meta_suspend_until: float = 0.0
         self._meta_suspend_active: bool = False
 
+    def _init_neural_engines(self, config) -> None:
         # Phase 4.2: LNN 液态神经网络引擎 — 动态时序预测
         # 输入维度 = 能量历史序列长度，hidden_units = 液态神经元数
         self.lnn_engine = LNNEngine(input_dim=16, hidden_units=64)
@@ -231,7 +265,7 @@ class SiliconInfant:
             except Exception as e:
                 self._log(f"THEIA 引擎加载失败: {e}", "ERROR")
 
-        self._log(f"Infant '{infant_id}' initialized. Energy: {self.hic.energy}")
+
 
     def _log(self, msg: str, level: str = "INFO") -> None:
         """Internal logging — structured + local history."""
@@ -256,6 +290,12 @@ class SiliconInfant:
                 "state": self.hic.state.value,
             },
         )
+
+    def _deduct_energy(self, amount: float, reason: str = "") -> None:
+        """Deduct energy from HIC budget for computational work."""
+        self.hic._energy = max(0.0, self.hic._energy - amount)
+        if amount > 0.5:
+            self._log(f"Energy -{amount:.2f}: {reason}", "DEBUG")
 
     def perceive(self) -> dict:
         """
@@ -435,6 +475,12 @@ class SiliconInfant:
             result = self.theia.intuit({"a": q, "b": p})
             verdict = result.verdict
             theia_conf = result.confidence
+
+            # Energy cost: THEIA intuition (configurable)
+            self._deduct_energy(
+                self.config.get("theia_energy_cost", self.THEIA_ENERGY_COST),
+                "THEIA intuition",
+            )
 
             # 根据 THEIA 判定调整计划置信度
             if verdict == 1:  # True — 物理可行
@@ -644,6 +690,7 @@ class SiliconInfant:
         One breath cycle — the main loop.
         Contract (explore) → Diffuse (evaluate) → (maybe) Suspend.
         """
+
         # Tracing span for this breath cycle
         span_id = self._tracer.start_span(
             "breath_cycle",
@@ -654,34 +701,11 @@ class SiliconInfant:
         )
 
         try:
-            # Meta-cognitive check (IMP-04): detect internal state fluctuation
+            # Check meta-cognitive suspend
             now = time.time()
-            if self._meta_suspend_active and now < self._meta_suspend_until:
-                # Still in meta-suspend period — pause and return suspend
-                time.sleep(0.1)
-                return self.hic.get_suspend_packet(self.infant_id)
-
-            # Monitor internal fluctuation
-            fluctuation = self._monitor_internal_fluctuation()
-            if fluctuation > self.META_SUSPEND_THRESHOLD:
-                self._log(
-                    f"Internal state fluctuation {fluctuation:.2f} exceeds threshold "
-                    f"{self.META_SUSPEND_THRESHOLD:.2f} — triggering meta-suspend",
-                    "WARN",
-                )
-                self._meta_suspend_active = True
-                self._meta_suspend_until = now + 30.0  # 30-second suspension
-
-                # Pause FeatureManager adaptation to prevent runaway learning
-                if hasattr(self.feature_manager, "pause_adaptation"):
-                    self.feature_manager.pause_adaptation = True
-
-                return self.hic.get_suspend_packet(self.infant_id)
-            else:
-                # Fluctuation正常，确保元悬置解除且适应恢复
-                self._meta_suspend_active = False
-                if hasattr(self.feature_manager, "pause_adaptation"):
-                    self.feature_manager.pause_adaptation = False
+            suspend_packet = self._check_meta_suspend(now)
+            if suspend_packet:
+                return suspend_packet
 
             # Update HIC state (this updates breath state and energy)
             self.hic.update_breath(confidence=0.7, work_done=False)
@@ -694,118 +718,276 @@ class SiliconInfant:
                 return self.hic.get_suspend_packet(self.infant_id)
 
             elif state == BreathState.CONTRACT:
-                # Contract phase: perceive, predict, act
-
-                # Phase 4.2: LNN 液态引擎 — 基于历史能量序列预测未来趋势
-                # 记录当前能量到历史队列
-                self._energy_history.append(self.hic.energy)
-                if len(self._energy_history) >= 10:
-                    # 构造输入序列: (time_steps, input_dim=16)
-                    # 将能量历史扩展为 16 维（填充零）以匹配 LNN 输入维度
-                    history_array = np.array(list(self._energy_history)[-10:], dtype=float)
-                    seq_16dim = np.zeros((10, 16))
-                    seq_16dim[:, 0] = history_array  # 第0维放能量历史，其余为0
-                    # LNN 预测
-                    try:
-                        prediction, lnn_state = self.lnn_engine.step(seq_16dim[-1])
-                        # prediction shape: (hidden_units,)
-                        # 未来可以训练 LNN 将 hidden_units 映射回能量值
-                        # 这里暂存预测结果供后续阶段使用
-                        self.predicted_energy_cost = float(np.mean(prediction))
-                        self._log(
-                            f"LNN prediction: energy_trend={self.predicted_energy_cost:.3f}, "
-                            f"lnn_energy={self.lnn_engine.energy():.3f}"
-                        )
-                    except Exception as e:
-                        self._log(f"LNN prediction failed: {e}", "WARN")
-                        self.predicted_energy_cost = 0.0
-
-                # 正常的感知-预测-适应循环
-                perception = self.perceive()
-                predicted, confidence = self.predict(perception)
-
-                # Phase 4.2.1: BitNet 深度语义推理（能量门控）
-                # 仅在能量充足且置信度低时触发，利用三进制权重的保守推理
-                bitnet_result = None
-                if self.bitnet_adapter and self.bitnet_adapter.should_invoke(
-                    self.hic.energy, confidence
-                ):
-                    bitnet_result = self.bitnet_adapter.reason(perception)
-                    if bitnet_result:
-                        self._last_bitnet_result = bitnet_result
-                        self._log(
-                            f"BitNet reasoning invoked: {bitnet_result.answer[:60]}... "
-                            f"(cost={bitnet_result.energy_cost:.2f} energy)",
-                            "INFO"
-                        )
-                        # 将深度推理结果注入大脑工作空间
-                        self.brain.workspace["deep_reasoning"] = {
-                            "answer": bitnet_result.answer,
-                            "confidence": bitnet_result.confidence,
-                            "energy_cost": bitnet_result.energy_cost,
-                            "tokens_used": bitnet_result.tokens_used,
-                        }
-
-                error = self.verify(predicted, perception)
-                self.adapt(error)
-
-                # Brain regions process
-                self.brain.perceive(perception)
-                # 将 BitNet 推理结果（若有）一并广播到集群
-                if bitnet_result:
-                    self.brain.workspace["bitnet_reasoning"] = {
-                        "answer": bitnet_result.answer,
-                        "confidence": bitnet_result.confidence,
-                    }
-                self.brain.broadcast_global_workspace(
-                    {
-                        "confidence": confidence,
-                        "error": error,
-                        "bitnet_used": bitnet_result is not None,
-                    }
-                )
-                # Share local workspace with cluster
-                self._propagate_global_workspace()
-
-                # Phase 4.2.1: 执行行动并记录任务完成（特征码提炼）
-                action = self.act(perception, predicted, confidence)
-                # 任务完成标记：成功行动（非SUSPEND）触发特征码提炼
-                if action and action.value_payload.get("action") != "suspend":
-                    self.on_task_complete(
-                        success=True,
-                        task_description="stable_orbit_plan"
-                    )
-                # Run skill cycle (background skills)
-                self._run_skill_cycle()
-                return action
+                return self._contract_phase()
 
             else:  # DIFFUSE
-                # Diffuse phase: process messages, forget old paths
-                self.process_inbox()
-                # Collective intelligence: select cluster workspace and integrate
-                self._run_collective_cycle()
-                self.memory.forget()
-                # Epic 3: periodic semantic path consolidation (every 100 cycles)
-                if self.hic.total_cycles % 100 == 0 and self.memory.semantic_mapper is not None:
-                    merged = self.memory.consolidate_semantic_paths()
-                    if merged > 0:
-                        self._log(f"Semantic consolidation merged {merged} paths", "INFO")
-                self.brain.decay_activations()
-
-                # Phase 4.2.1: 主动反思（借鉴 Hermes "反刍"机制）
-                # 每 100 个呼吸周期主动审视特征码效能
-                if self.hic.total_cycles % 100 == 0:
-                    self._reflect_on_features()
-
-                # Run background skill cycle (includes ResearchSkill if enabled)
-                self._run_skill_cycle()
-
-                time.sleep(self.hic.config.diffuse_duration)
+                self._diffuse_phase()
                 return None
         finally:
             # Record metrics after every cycle
             self._record_metrics()
             self._tracer.end_span(span_id)
+
+    def _check_meta_suspend(self, now: float) -> CosmicPacket | None:
+        """Check meta-cognitive fluctuation and apply suspend if needed.
+
+        Returns:
+            CosmicPacket if should suspend, None to continue.
+        """
+        # Meta-cognitive check (IMP-04): detect internal state fluctuation
+        now = time.time()
+        if self._meta_suspend_active and now < self._meta_suspend_until:
+            # Still in meta-suspend period — pause and return suspend
+            time.sleep(0.1)
+            return self.hic.get_suspend_packet(self.infant_id)
+
+        # Monitor internal fluctuation
+        fluctuation = self._monitor_internal_fluctuation()
+        if fluctuation > self.META_SUSPEND_THRESHOLD:
+            self._log(
+                f"Internal state fluctuation {fluctuation:.2f} exceeds threshold "
+                f"{self.META_SUSPEND_THRESHOLD:.2f} — triggering meta-suspend",
+                "WARN",
+            )
+            self._meta_suspend_active = True
+            self._meta_suspend_until = now + 30.0  # 30-second suspension
+
+            # Pause FeatureManager adaptation to prevent runaway learning
+            if hasattr(self.feature_manager, "pause_adaptation"):
+                self.feature_manager.pause_adaptation = True
+
+            return self.hic.get_suspend_packet(self.infant_id)
+        else:
+            # Fluctuation正常，确保元悬置解除且适应恢复
+            self._meta_suspend_active = False
+            if hasattr(self.feature_manager, "pause_adaptation"):
+                self.feature_manager.pause_adaptation = False
+
+    def _contract_phase(self) -> CosmicPacket | None:
+        """Contract phase: perceive, predict, act.
+
+        Includes: LNN prediction, BitNet reasoning, THEIA intuition,
+        brain processing, action execution, task completion, skill cycle.
+        """
+        # Contract phase: perceive, predict, act
+
+        # Phase 4.2: LNN 液态引擎 — 基于历史能量序列预测未来趋势
+        self._energy_history.append(self.hic.energy)
+        if len(self._energy_history) >= 10:
+            try:
+                self.predicted_energy_cost = self.lnn_engine.predict_energy_trend(
+                    list(self._energy_history)[-10:]
+                )
+                self._log(
+                    f"LNN prediction: energy_trend={self.predicted_energy_cost:.3f}, "
+                    f"lnn_energy={self.lnn_engine.energy():.3f}"
+                )
+            except Exception as e:
+                self._log(f"LNN prediction failed: {e}", "WARN")
+                self.predicted_energy_cost = 0.0
+
+        # Energy cost: LNN prediction (configurable)
+        self._deduct_energy(
+            self.config.get("lnn_energy_cost", self.LNN_ENERGY_COST),
+            "LNN prediction",
+        )
+
+        # 正常的感知-预测-适应循环
+        # Save previous sensors for cross-cycle learner recording
+        if hasattr(self, "_last_sensors"):
+            self._prev_sensors = self._last_sensors
+        perception = self.perceive()
+        self._last_sensors = perception.get("sensors", {})
+
+        # Six-layer pipeline: route perception through all layers (L1→L6)
+        # Runs alongside existing logic, formalizing the fractal architecture
+        self.process_through_layers(perception)
+
+        predicted, confidence = self.predict(perception)
+
+        # Energy cost: perception (configurable)
+        self._deduct_energy(
+            self.config.get("perception_energy_cost", self.PERCEPTION_ENERGY_COST),
+            "perception",
+        )
+
+        # Phase 4.2.1: BitNet 深度语义推理（能量门控）
+        # 仅在能量充足且置信度低时触发，利用三进制权重的保守推理
+        bitnet_result = None
+        if self.bitnet_adapter and self.bitnet_adapter.should_invoke(
+            self.hic.energy, confidence
+        ):
+            bitnet_result = self.bitnet_adapter.reason(perception)
+            if bitnet_result:
+                self._last_bitnet_result = bitnet_result
+                self._log(
+                    f"BitNet reasoning invoked: {bitnet_result.answer[:60]}... "
+                    f"(cost={bitnet_result.energy_cost:.2f} energy)",
+                    "INFO"
+                )
+                # 将深度推理结果注入大脑工作空间
+                self.brain.workspace["deep_reasoning"] = {
+                    "answer": bitnet_result.answer,
+                    "confidence": bitnet_result.confidence,
+                    "energy_cost": bitnet_result.energy_cost,
+                    "tokens_used": bitnet_result.tokens_used,
+                }
+                # Energy cost: BitNet reasoning (configurable)
+                self._deduct_energy(
+                    self.config.get("bitnet_energy_cost", self.BITNET_ENERGY_COST),
+                    "BitNet reasoning",
+                )
+
+        error = self.verify(predicted, perception)
+        self.adapt(error)
+
+        # Phase 5.1: Active perception gate — update with prediction error per sensor
+        sensors = perception.get("sensors", {})
+        per_sensor_error = {k: error for k in sensors}
+        self._active_perception_gate.update(per_sensor_error)
+
+        # Brain regions process
+        self.brain.perceive(perception)
+        # 将 BitNet 推理结果（若有）一并广播到集群
+        if bitnet_result:
+            self.brain.workspace["bitnet_reasoning"] = {
+                "answer": bitnet_result.answer,
+                "confidence": bitnet_result.confidence,
+            }
+        self.brain.broadcast_global_workspace(
+            {
+                "confidence": confidence,
+                "error": error,
+                "bitnet_used": bitnet_result is not None,
+            }
+        )
+        # Share local workspace with cluster
+        self._propagate_global_workspace()
+
+        # Phase 4.2.1: 执行行动并记录任务完成（特征码提炼）
+        action = self.act(perception, predicted, confidence)
+        # 任务完成标记：成功行动（非SUSPEND）触发特征码提炼
+        if action and action.value_payload.get("action") != "suspend":
+            self.on_task_complete(
+                success=True,
+                task_description="stable_orbit_plan"
+            )
+            # Energy cost: action generation (configurable)
+            self._deduct_energy(
+                self.config.get("action_energy_cost", self.ACTION_ENERGY_COST),
+                "action",
+            )
+
+            # Phase 5.1: Sensorimotor contingency learner — record action→sensor delta
+            prev_sensors = getattr(self, "_prev_sensors", perception.get("sensors", {}))
+            cur_sensors = perception.get("sensors", {})
+            self._sensorimotor_learner.record("breath_cycle_action", prev_sensors, cur_sensors)
+        # Run skill cycle (background skills)
+        self._run_skill_cycle()
+        return action
+
+    def _diffuse_phase(self) -> None:
+        """Diffuse phase: process inbox, collective cycle, memory forget,
+        semantic consolidation, feature reflection, skill cycle.
+        """
+        # Diffuse phase: process messages, forget old paths
+        # Energy cost: process_inbox — 0.05 per message, capped at 1.0
+        inbox_msg_count = min(len(self.inbox), 20)  # 20 * 0.05 = 1.0 cap
+        self.process_inbox()
+        self._deduct_energy(
+            inbox_msg_count * 0.05,
+            f"process_inbox ({inbox_msg_count} messages)",
+        )
+        # Collective intelligence: select cluster workspace and integrate
+        self._run_collective_cycle()
+        # Energy cost: memory forget
+        self.memory.forget()
+        self._deduct_energy(0.1, "memory forget")
+        # Epic 3: periodic semantic path consolidation (every 100 cycles)
+        if self.hic.total_cycles % 100 == 0 and self.memory.semantic_mapper is not None:
+            merged = self.memory.consolidate_semantic_paths()
+            if merged > 0:
+                self._log(f"Semantic consolidation merged {merged} paths", "INFO")
+        self.brain.decay_activations()
+
+        # Phase 4.2.1: 主动反思（借鉴 Hermes "反刍"机制）
+        # 每 100 个呼吸周期主动审视特征码效能
+        if self.hic.total_cycles % 100 == 0:
+            self._reflect_on_features()
+
+        # Run background skill cycle (includes ResearchSkill if enabled)
+        self._run_skill_cycle()
+
+        time.sleep(self.hic.config.diffuse_duration)
+        return None
+
+    def process_through_layers(self, perception: dict) -> dict:
+        """Route perception through all six layers sequentially (L1→L6).
+
+        L1 (TimescaleSegmenter) → accumulate data, create_segment
+        L2 (SemanticMapper) → map physical to semantic concept
+        L3 (SlimeExplorer) → plan exploration paths from the concept
+        L4 (MyelinationMemory) → reinforce/forget based on success signals
+        L5 (SuperBrain) → broadcast to brain regions, workspace
+        L6 (SymbiosisInterface) → share with partners if interaction needed
+
+        Returns dict with keys: segment, concept, plan, plan_confidence,
+                memory_paths, workspace, partner_actions.
+        """
+        result: dict[str, Any] = {}
+
+        # L1: TimescaleSegmenter — accumulate data, create segment
+        sensor_data = perception.get("sensors", {})
+        data_point = {**sensor_data, "v": sensor_data.get("vibration", 0.0)}
+        self.layer_1_segmenter.accumulate(data_point)
+        segment = self.layer_1_segmenter.create_segment()
+        result["segment"] = segment
+
+        # L2: SemanticMapper — map physical to semantic concept
+        concept = self.semantic_mapper.map(perception.get("physical", {}))
+        result["concept"] = concept
+
+        # L3: SlimeExplorer — plan exploration paths from the concept
+        plan, plan_conf = self.explorer.plan(perception, "stable_orbit")
+        result["plan"] = plan
+        result["plan_confidence"] = plan_conf
+
+        # L4: MyelinationMemory — reinforce based on success signals
+        if plan:
+            self.memory.reinforce(
+                plan["path"],
+                success=True,
+                saliency=self._current_saliency,
+                end_state=perception.get("physical", {}),
+            )
+        result["memory_paths"] = self.memory.get_status()
+
+        # L5: SuperBrain — broadcast to brain regions, workspace
+        self.brain.broadcast_global_workspace(
+            {
+                "layer_pipeline": True,
+                "segment_features": segment.features,
+                "concept_id": concept.concept_id,
+                "plan_quality": plan_conf,
+            }
+        )
+        result["workspace"] = (
+            self.brain.global_workspace.copy() if self.brain.global_workspace else {}
+        )
+
+        # L6: SymbiosisInterface — share with partners if interaction needed
+        partner_actions: list[str] = []
+        active_partners = self.interface.get_active_partners(min_trust=0.5)
+        for partner in active_partners[:3]:
+            self.interface.perceive_partner(
+                partner.partner_id,
+                trust=partner.trust,
+                mode=InteractionMode.COLLABORATE,
+            )
+            partner_actions.append(partner.partner_id)
+        result["partner_actions"] = partner_actions
+
+        return result
 
     # =============================================================================
     # Phase 4.2.1: Feature Manager Integration — Hermes-inspired self-learning
@@ -1050,15 +1232,8 @@ class SiliconInfant:
         """
         self._log("Breathing cycle started", "INFO")
 
-        # Start cluster services (discovery, etc.) if in cluster mode
-        if self.discovery:
-            import asyncio
-
-            with suppress(RuntimeError):
-                _ = asyncio.create_task(self.discovery.start())  # noqa: RUF006
-                # No event loop running — discovery will be started externally
-
-        cycles = 0
+        # NodeDiscovery is an async service requiring an event loop.
+        # Start externally via the cluster supervisor (e.g., asyncio.run).
 
         try:
             while self.hic.energy > 0:
@@ -1076,14 +1251,13 @@ class SiliconInfant:
                 if self._cycle_count % 10 == 0 and self.node_manager:
                     self.node_manager.record_heartbeat(self.infant_id)
 
-                cycles += 1
-                if max_cycles and cycles >= max_cycles:
+                if max_cycles and self._cycle_count >= max_cycles:
                     break
 
         except KeyboardInterrupt:
             self._log("Interrupted by user", "INFO")
         finally:
-            self._log(f"Stopped after {cycles} cycles", "INFO")
+            self._log(f"Stopped after {self._cycle_count} cycles", "INFO")
 
     def get_status(self) -> dict:
         """Full status report."""
@@ -1137,3 +1311,151 @@ class SiliconInfant:
         self._log(
             f"Resonance bonus +{bonus:.3f} with {partner_id} (sim={similarity:.2f})"
         )
+
+    def get_active_sensors(self, k: int = 3) -> set[str]:
+        """Return top-k most interesting sensor names from active perception gate.
+
+        Args:
+            k: Number of sensors to return
+
+        Returns:
+            Set of sensor names with highest interest scores
+        """
+        return self._active_perception_gate.get_attention_mask(k)
+
+    # =========================================================================
+    # State Serialization — save/load the full infant
+    # =========================================================================
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize full infant state to a JSON-serializable dict."""
+        hic_status = self.hic.get_status()
+        history_entries: list[dict] = []
+        for h in list(self.sympnet.history)[-50:]:
+            history_entries.append({"q": h["q"], "p": h["p"], "energy": h["energy"], "drift": h["drift"]})
+
+        # Feature manager codes
+        feature_codes: list[dict] = []
+        if hasattr(self, "feature_manager"):
+            for fc in self.feature_manager.list_all():
+                feature_codes.append({
+                    "name": fc.name,
+                    "description": fc.description,
+                    "success_count": fc.success_count,
+                    "failure_count": fc.failure_count,
+                })
+
+        # Knowledge store entries
+        knowledge: dict = {}
+        if self.knowledge_store is not None:
+            ks_stats = self.knowledge_store.get_stats()
+            knowledge = {"total_entries": ks_stats.get("total_entries", 0)}
+
+        data: dict[str, Any] = {
+            "infant_id": self.infant_id,
+            "hic": {
+                "energy": hic_status["energy"],
+                "energy_max": hic_status["energy_max"],
+                "state": hic_status["state"],
+                "total_cycles": hic_status["total_cycles"],
+                "suspend_count": hic_status["suspend_count"],
+                "adaptation_count": hic_status["adaptation_count"],
+                "value_vector": hic_status["value_vector"],
+                "contract_duration": hic_status["contract_duration"],
+                "diffuse_duration": hic_status["diffuse_duration"],
+                "suspend_duration": hic_status["suspend_duration"],
+                "dormant_state": getattr(self.hic, "_dormant_state", False),
+            },
+            "sympnet": {
+                "mass": self.sympnet.mass,
+                "spring_constant": self.sympnet.spring_constant,
+                "damping": self.sympnet.damping,
+                "history": history_entries,
+            },
+            "explorer": {
+                "exploration_factor": self.explorer.exploration_factor,
+            },
+            "memory": {
+                "trace_count": len(self.memory.traces),
+            },
+            "brain": self.brain.get_status(),
+            "interface": self.interface.get_status(),
+            "feature_codes": feature_codes,
+            "knowledge": knowledge,
+            "lnn_energy_history": list(self._energy_history),
+            "meta": {
+                "fluctuation_history": list(self._internal_fluctuation_history),
+                "meta_suspend_active": self._meta_suspend_active,
+                "meta_suspend_until": self._meta_suspend_until,
+            },
+            "cycle_count": self._cycle_count,
+            "saved_at": time.time(),
+        }
+        return data
+
+    def from_dict(self, data: dict[str, Any]) -> None:
+        """Restore full infant state from a dict."""
+        # HIC
+        hic_d = data.get("hic", {})
+        self.hic._energy = hic_d.get("energy", self.hic.config.energy_max)
+        state_str = hic_d.get("state", "contract")
+        try:
+            self.hic._state = BreathState(state_str)
+        except ValueError:
+            self.hic._state = BreathState.CONTRACT
+        self.hic.total_cycles = hic_d.get("total_cycles", 0)
+        self.hic.suspend_count = hic_d.get("suspend_count", 0)
+        self.hic.adaptation_count = hic_d.get("adaptation_count", 0)
+        self.hic.value_vector = hic_d.get("value_vector", self.hic.value_vector)
+        if hasattr(self.hic, "_dormant_state"):
+            self.hic._dormant_state = hic_d.get("dormant_state", False)
+
+        # SympNet
+        symp_d = data.get("sympnet", {})
+        self.sympnet.mass = symp_d.get("mass", 1.0)
+        self.sympnet.spring_constant = symp_d.get("spring_constant", 1.0)
+        self.sympnet.damping = symp_d.get("damping", 0.0)
+
+        # Explorer
+        explorer_d = data.get("explorer", {})
+        self.explorer.exploration_factor = explorer_d.get("exploration_factor", 0.3)
+
+        # Meta state
+        meta_d = data.get("meta", {})
+        fluct_list = meta_d.get("fluctuation_history", [])
+        self._internal_fluctuation_history = deque(fluct_list, maxlen=20)
+        self._meta_suspend_active = meta_d.get("meta_suspend_active", False)
+        self._meta_suspend_until = meta_d.get("meta_suspend_until", 0.0)
+
+        # LNN energy history
+        self._energy_history = deque(data.get("lnn_energy_history", []), maxlen=50)
+
+        # Cycle counter
+        self._cycle_count = data.get("cycle_count", 0)
+
+        # Start time: use saved_at if available, otherwise reset
+        self.start_time = data.get("saved_at", time.time())
+
+    def save(self, path: str | Path) -> None:
+        """Persist full infant state to a JSON file."""
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = self.to_dict()
+        data["saved_at"] = time.time()
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False, default=str)
+        self._log(f"State saved to {path}", "INFO")
+
+    def load(self, path: str | Path) -> None:
+        """Restore infant state from a JSON file."""
+        path = Path(path)
+        if not path.exists():
+            raise FileNotFoundError(f"Save file not found: {path}")
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        required = {"infant_id", "hic", "sympnet"}
+        missing = required - set(data.keys())
+        if missing:
+            raise ValueError(f"Save file missing required keys: {missing}")
+        self.from_dict(data)
+        self._log(f"State loaded from {path}", "INFO")

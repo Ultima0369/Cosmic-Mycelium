@@ -6,6 +6,7 @@ Tests parallel exploration, spore generation, convergence, and deterministic RNG
 from __future__ import annotations
 
 import pytest
+
 from cosmic_mycelium.infant.core.layer_3_slime_explorer import (
     SlimeExplorer,
     Spore,
@@ -60,7 +61,7 @@ class TestSporeGeneration:
         assert len(set(ids)) == len(ids)
 
     def test_spore_energy_in_expected_range(self):
-        """Spore energy is within 0.5–1.5 (RNG range)."""
+        """Spore energy is within 0.5-1.5 (RNG range)."""
         explorer = SlimeExplorer(num_spores=50)
         spores = explorer.explore({}, None)
 
@@ -68,7 +69,7 @@ class TestSporeGeneration:
             assert 0.5 <= spore.energy <= 1.5
 
     def test_spore_path_length_in_expected_range(self):
-        """Spore path length is 1–5 (RNG range)."""
+        """Spore path length is 1-5 (RNG range)."""
         explorer = SlimeExplorer(num_spores=100)
         spores = explorer.explore({}, None)
 
@@ -113,7 +114,7 @@ class TestDeterministicRNG:
 
         # Compare structural properties
         assert len(spores1) == len(spores2)
-        for s1, s2 in zip(spores1, spores2):
+        for s1, s2 in zip(spores1, spores2, strict=False):
             assert s1.id == s2.id
             assert s1.path == s2.path
             assert s1.energy == s2.energy
@@ -125,7 +126,6 @@ class TestDeterministicRNG:
         explorer = SlimeExplorer()
         # If seed wasn't fixed, this would be flaky
         first_energy = explorer.rng.uniform(0.5, 1.5)
-        second_energy = explorer.rng.uniform(0.5, 1.5)
         # Just verifying RNG works; real determinism tested in test_exploration_is_deterministic
         assert isinstance(first_energy, float)
 
@@ -205,7 +205,7 @@ class TestPlan:
         assert len(converge_called) == 1
 
     def test_plan_confidence_scales_with_best_quality(self):
-        """Confidence roughly equals best spore quality (0–1 range)."""
+        """Confidence roughly equals best spore quality (0-1 range)."""
         explorer = SlimeExplorer(num_spores=10)
         best, confidence = explorer.plan({}, "goal")
 

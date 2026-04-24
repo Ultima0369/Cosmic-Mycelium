@@ -7,8 +7,24 @@ Skills Base — 技能插件系统核心协议
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Protocol
 import time
+
+
+class ParallelismPolicy(Enum):
+    """
+    Parallelism classification for thread-pool scheduling (Sprint 2).
+
+    - SEQUENTIAL: Must run on main thread; preserves ordering/dependency guarantees.
+    - ISOLATED: No shared state access; safe to run in any thread.
+    - READONLY: Only reads shared state (no mutations); safe parallel.
+    - SHARED_WRITE: Writes shared infant state; requires ResourceLockManager guard.
+    """
+    SEQUENTIAL = "sequential"
+    ISOLATED = "isolated"
+    READONLY = "readonly"
+    SHARED_WRITE = "shared_write"
 
 
 @dataclass
@@ -36,6 +52,8 @@ class InfantSkill(Protocol):
     version: str                   # 语义化版本 (e.g. "1.0.0")
     description: str               # 人类可读描述
     dependencies: list[str]        # 依赖的其他技能名称列表（可为空）
+    parallelism_policy: ParallelismPolicy = ParallelismPolicy.SEQUENTIAL  # Sprint 2: 并行策略
+    priority: float = 0.5          # Sprint 3: 执行优先级 0.0（低）~ 1.0（高），默认 0.5
 
     def initialize(self, context: SkillContext) -> None:
         """
@@ -79,6 +97,41 @@ class InfantSkill(Protocol):
         """
         ...
 
+    # -------------------------------------------------------------------------
+    # Async Execution (Sprint 1: Multi-Agent Parallelism)
+    # -------------------------------------------------------------------------
+
+    def can_execute_async(self) -> bool:
+        """
+        Whether this skill supports asynchronous execution.
+
+        Override to return True if `execute_async()` is implemented.
+        Default is False (synchronous execution).
+        """
+        return False
+
+    async def execute_async(self, params: dict[str, Any]) -> Any:
+        """
+        Asynchronous execution path (optional).
+
+        Skills that perform network I/O or long-running CPU work should
+        override `can_execute_async()` to return True and implement this
+        method. The lifecycle manager will run such skills concurrently
+        via asyncio.gather().
+
+        Args:
+            params: 技能特定参数（由调用方传入）
+
+        Returns:
+            执行结果（技能特定格式）
+
+        Raises:
+            SkillExecutionError: 执行失败（异常应被捕获并记录）
+        """
+        raise NotImplementedError(
+            f"Skill '{self.name}' declared can_execute_async=True but did not implement execute_async()"
+        )
+
     def get_resource_usage(self) -> dict[str, float]:
         """
         返回本轮执行的资源消耗报告。
@@ -106,7 +159,10 @@ class InfantSkill(Protocol):
 
 class SkillExecutionError(Exception):
     """技能执行失败异常。"""
-    pass
+
+    def __init__(self, message: str, parallelism_unsafe: bool = False):
+        super().__init__(message)
+        self.parallelism_unsafe = parallelism_unsafe
 
 
 class SkillInitializationError(Exception):

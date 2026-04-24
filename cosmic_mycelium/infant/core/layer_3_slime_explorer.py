@@ -6,18 +6,19 @@ Mimics slime mold's parallel "discharge" and convergence with learned heuristics
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import List, Optional, Dict
 import random
 import time
+from dataclasses import dataclass, field
+
 import numpy as np
 
 
 @dataclass
 class Spore:
     """A parallel exploration branch with resource budget."""
+
     id: str
-    path: List[str] = field(default_factory=list)
+    path: list[str] = field(default_factory=list)
     energy: float = 1.0
     quality: float = 0.0
     age: int = 0
@@ -47,21 +48,41 @@ class SlimeExplorer:
         self.pheromone_evaporation = pheromone_evaporation
         self.min_path_length = min_path_length
         self.max_path_length = max_path_length
-        self.spores: List[Spore] = []
-        self.pheromone_map: Dict[str, float] = {}
+        self.spores: list[Spore] = []
+        self.pheromone_map: dict[str, float] = {}
         self.success_history: list = []
         self.rng = random.Random(42)  # Deterministic RNG
         self._spore_counter = 0
 
-    def explore(self, context: Dict, goal_hint: Optional[str] = None) -> List[Spore]:
+    def explore(self, context: dict, goal_hint: str | None = None) -> list[Spore]:
         """
         Release spores to explore multiple paths simultaneously.
         Each spore follows a probabilistic policy.
+
+        Spore count is dynamically adjusted based on energy and confidence:
+          - energy > 50 and confidence < 0.5: max spores (大胆探索)
+          - energy > 30: normal
+          - energy ≤ 30 or SUSPEND risk: minimal (节能)
+
+        v4.0: Spore count = f(energy, confidence, breath_state).
         """
         self.spores.clear()
         available_actions = self._discover_actions(context)
 
-        for i in range(self.num_spores):
+        # ── Dynamic spore allocation (v4.0, opt-in via context keys) ──
+        energy = context.get("energy")
+        confidence = context.get("confidence")
+        num_spores = self.num_spores  # default: use configured value
+
+        if energy is not None and confidence is not None:
+            if energy > 50.0 and confidence < 0.5:
+                num_spores = self.num_spores  # max: 大胆探索
+            elif energy > 30.0:
+                num_spores = max(3, self.num_spores // 2)  # normal
+            else:
+                num_spores = max(2, self.num_spores // 5)  # 节能模式
+
+        for i in range(num_spores):
             spore_id = f"spore_{self._spore_counter:06d}_{i}"
             self._spore_counter += 1
 
@@ -71,8 +92,10 @@ class SlimeExplorer:
             # Generate path with length ∈ [min, max]
             target_len = self.rng.randint(self.min_path_length, self.max_path_length)
 
-            for step in range(target_len):
-                candidates = [a for a in available_actions if a not in spore.visited_nodes]
+            for _ in range(target_len):
+                candidates = [
+                    a for a in available_actions if a not in spore.visited_nodes
+                ]
                 if not candidates:
                     break
 
@@ -82,7 +105,11 @@ class SlimeExplorer:
                 for action in candidates:
                     test_path = f"{path_so_far}->{action}" if path_so_far else action
                     pheromone = self.pheromone_map.get(test_path, 0.1)
-                    goal_bonus = 1.5 if (goal_hint and goal_hint.lower() in action.lower()) else 1.0
+                    goal_bonus = (
+                        1.5
+                        if (goal_hint and goal_hint.lower() in action.lower())
+                        else 1.0
+                    )
                     scores.append(pheromone * goal_bonus)
 
                 if self.rng.random() < self.exploration_factor:
@@ -102,13 +129,13 @@ class SlimeExplorer:
 
         return self.spores
 
-    def _discover_actions(self, context: Dict) -> List[str]:
+    def _discover_actions(self, context: dict) -> list[str]:
         """Extract available actions from context (default: action_0 to action_9)."""
         if "actions" in context:
             return list(context["actions"])
         return [f"action_{i}" for i in range(10)]
 
-    def _evaluate_path(self, path: List[str], goal: Optional[str]) -> float:
+    def _evaluate_path(self, path: list[str], goal: str | None) -> float:
         """Evaluate how good a path is (0.0 to 1.0+)."""
         if not path:
             return 0.0
@@ -117,11 +144,15 @@ class SlimeExplorer:
         pheromone = self.pheromone_map.get(path_key, 0.1)
 
         # Goal alignment bonus (check last action)
-        goal_bonus = 0.5 if (goal and path and goal.lower() in path[-1].lower()) else 0.0
+        goal_bonus = (
+            0.5 if (goal and path and goal.lower() in path[-1].lower()) else 0.0
+        )
 
         return float(pheromone * 0.7 + goal_bonus * 0.3)
 
-    def converge(self, threshold: float = 0.6, spores: Optional[List[Spore]] = None) -> Optional[Spore]:
+    def converge(
+        self, threshold: float = 0.6, spores: list[Spore] | None = None
+    ) -> Spore | None:
         """
         Converge on the best spore (best path).
         Returns None if no spore meets confidence threshold.
@@ -146,15 +177,19 @@ class SlimeExplorer:
             if self.pheromone_map[key] < 0.01:
                 del self.pheromone_map[key]
 
-        self.success_history.append({
-            "path": best.path,
-            "quality": best.quality,
-            "timestamp": time.time(),
-        })
+        self.success_history.append(
+            {
+                "path": best.path,
+                "quality": best.quality,
+                "timestamp": time.time(),
+            }
+        )
 
         return best
 
-    def plan(self, context: Dict, goal_hint: Optional[str] = None) -> tuple[Optional[Dict], float]:
+    def plan(
+        self, context: dict, goal_hint: str | None = None
+    ) -> tuple[dict | None, float]:
         """
         Full explore-converge cycle.
         Returns (best_plan, confidence) or (None, 0.0).
@@ -171,7 +206,9 @@ class SlimeExplorer:
             }, best.quality
         return None, 0.0
 
-    def reinforce_path(self, path: List[str], delta: float = 0.1, decay: float = 1.0) -> float:
+    def reinforce_path(
+        self, path: list[str], delta: float = 0.1, decay: float = 1.0
+    ) -> float:
         """
         Explicitly reinforce a path's pheromone (external feedback).
 
@@ -186,7 +223,7 @@ class SlimeExplorer:
         self.pheromone_map[path_key] = new_val
         return new_val
 
-    def get_status(self) -> Dict:
+    def get_status(self) -> dict:
         """Return explorer status for monitoring."""
         return {
             "spores_generated": self._spore_counter,
