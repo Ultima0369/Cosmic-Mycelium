@@ -9,6 +9,7 @@ from __future__ import annotations
 import random
 import time
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 
@@ -33,6 +34,10 @@ class SlimeExplorer:
     Selects best path via "convergence" (like slime mold choosing food source).
 
     Learning: Pheromone-based path reinforcement with evaporation.
+
+    Trauma integration: paths that overlap with trauma memories are penalized,
+    and repeated avoidance accumulates repression potential that can trigger
+    involuntary flashbacks.
     """
 
     def __init__(
@@ -42,6 +47,7 @@ class SlimeExplorer:
         pheromone_evaporation: float = 0.99,
         min_path_length: int = 1,
         max_path_length: int = 5,
+        trauma_memory: Any = None,
     ):
         self.num_spores = num_spores
         self.exploration_factor = exploration_factor
@@ -53,6 +59,10 @@ class SlimeExplorer:
         self.success_history: list = []
         self.rng = random.Random(42)  # Deterministic RNG
         self._spore_counter = 0
+        # Trauma/flashback integration
+        self.trauma_memory = trauma_memory
+        self._flashback_active: bool = False
+        self._flashback_context: dict | None = None
 
     def explore(self, context: dict, goal_hint: str | None = None) -> list[Spore]:
         """
@@ -148,7 +158,16 @@ class SlimeExplorer:
             0.5 if (goal and path and goal.lower() in path[-1].lower()) else 0.0
         )
 
-        return float(pheromone * 0.7 + goal_bonus * 0.3)
+        # ── Trauma penalty ──
+        trauma_penalty = 0.0
+        if self.trauma_memory is not None:
+            for trauma_path in self.trauma_memory.trauma_paths:
+                trauma_prefix = trauma_path.split("->")[0] if "->" in trauma_path else trauma_path
+                if path_key.startswith(trauma_prefix) or path_key == trauma_path:
+                    trauma_penalty = 0.5
+                    break
+
+        return float(pheromone * 0.7 + goal_bonus * 0.3 - trauma_penalty * 0.3)
 
     def converge(
         self, threshold: float = 0.6, spores: list[Spore] | None = None
@@ -156,6 +175,9 @@ class SlimeExplorer:
         """
         Converge on the best spore (best path).
         Returns None if no spore meets confidence threshold.
+
+        Trauma integration: after convergence, if trauma_memory is available,
+        accumulates repression for avoided trauma paths and checks for flashback triggers.
         """
         spores = spores if spores is not None else self.spores
         if not spores:
@@ -184,6 +206,23 @@ class SlimeExplorer:
                 "timestamp": time.time(),
             }
         )
+
+        # ── Trauma repression accumulation ──
+        if self.trauma_memory is not None and len(self.trauma_memory.trauma_paths) > 0:
+            chosen_path_str = "->".join(best.path)
+            for trauma_path in self.trauma_memory.trauma_paths:
+                # If we actively avoided a trauma path, accumulate repression
+                if chosen_path_str != trauma_path:
+                    self.trauma_memory.accumulate_repression(trauma_path)
+
+            # Check for flashback triggers
+            flashbacks = self.trauma_memory.check_flashback_trigger()
+            if flashbacks:
+                self._flashback_active = True
+                self._flashback_context = {
+                    "triggered_at": time.time(),
+                    "flashbacks": flashbacks,
+                }
 
         return best
 

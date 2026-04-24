@@ -50,6 +50,12 @@ class Situation:
     # ── 共振状态 ──
     resonance_vector: np.ndarray | None = None  # 与其他节点的"和声"状态
     coupling_strength: float = 0.0              # 与菌丝网络的耦合强度
+    resonance_intensity: float = 0.0            # 共振烈度 [0, 1]：情景的"冲击力"
+
+    # ── 创伤标记 ──
+    trauma_flag: bool = False                    # 是否被标记为【创伤】
+    trauma_timestamp: float = 0.0                # 创伤发生时间
+    trauma_context: str = ""                     # 创伤时的上下文描述
 
     # ── 元数据 ──
     timestamp: float = 0.0
@@ -96,6 +102,11 @@ class Situation:
         if other.resonance_vector is not None and self.resonance_vector is not None:
             res = self.resonance_vector * (1 - alpha) + other.resonance_vector * alpha
 
+        # 创伤传播：如果任一态势携带创伤标记，融合结果也标记
+        trauma = self.trauma_flag or other.trauma_flag
+        trauma_ts = self.trauma_timestamp if self.trauma_flag else other.trauma_timestamp
+        trauma_ctx = self.trauma_context or other.trauma_context
+
         return Situation(
             position=pos,
             momentum=mom,
@@ -106,6 +117,10 @@ class Situation:
             energy=(self.energy + other.energy) / 2,
             resonance_vector=res,
             coupling_strength=max(self.coupling_strength, other.coupling_strength),
+            resonance_intensity=max(self.resonance_intensity, other.resonance_intensity),
+            trauma_flag=trauma,
+            trauma_timestamp=trauma_ts,
+            trauma_context=trauma_ctx,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -125,6 +140,10 @@ class Situation:
             "energy": self.energy,
             "resonance_vector": _safe(self.resonance_vector),
             "coupling_strength": self.coupling_strength,
+            "resonance_intensity": self.resonance_intensity,
+            "trauma_flag": self.trauma_flag,
+            "trauma_timestamp": self.trauma_timestamp,
+            "trauma_context": self.trauma_context,
             "timestamp": self.timestamp,
             "source_id": self.source_id,
         }

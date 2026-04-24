@@ -115,6 +115,184 @@ class TestSympNetMultiDOF:
         assert drift < 0.001, f"Custom potential drift {drift} exceeds 0.1%"
 
 
+class TestTraumaLoop:
+    """创伤回路 — 反遗忘 + 闪回 + 压抑势能。"""
+
+    def test_trauma_marked_path_survives_forgetting(self):
+        """创伤标记的路径在遗忘中反而增强。"""
+        m = MyelinationMemory()
+        m.reinforce("normal_path", success=True, saliency=0.5)
+        m.reinforce("trauma_path", success=True, saliency=1.0)
+        m.mark_trauma("trauma_path", context="test trauma")
+        before = m.path_strength["trauma_path"]
+        m.forget(dt_seconds=100.0)
+        after = m.path_strength["trauma_path"]
+        # Trauma path should grow stronger with time
+        assert after >= before, "Trauma path should not decay"
+        # Normal path should decay
+        assert m.path_strength.get("normal_path", 0) < after
+
+    def test_trauma_mark_persists_in_dynamics(self):
+        """创伤路径不会因遗忘而被删除。"""
+        m = MyelinationMemory()
+        m.path_strength = {"weak": 0.1, "trauma": 5.0}
+        m.trauma_paths["trauma"] = {"timestamp": 0, "context": ""}
+        m.forget(dt_seconds=1000.0)
+        # weak should be removed, trauma should persist
+        assert "weak" not in m.path_strength
+        assert "trauma" in m.path_strength
+
+    def test_repression_accumulates(self):
+        """多次回避创伤路径会累积压抑势能。"""
+        m = MyelinationMemory()
+        m.trauma_paths["path_x"] = {"repression_count": 0}
+        for _ in range(5):
+            m.accumulate_repression("path_x")
+        assert m.repression_potential > 0
+        assert m.trauma_paths["path_x"]["repression_count"] == 5
+
+    def test_flashback_triggers_at_threshold(self):
+        """压抑势能达到阈值后触发闪回。"""
+        m = MyelinationMemory()
+        m.path_strength["trauma"] = 5.0
+        m.trauma_paths["trauma"] = {
+            "timestamp": 0, "context": "bad", "repression_count": 10, "flashback_count": 0,
+        }
+        triggers = m.check_flashback_trigger()
+        assert len(triggers) == 1
+        assert triggers[0]["path"] == "trauma"
+        # repression_count should be reset
+        assert m.trauma_paths["trauma"]["repression_count"] == 0
+        # flashback_count should increment
+        assert m.trauma_paths["trauma"]["flashback_count"] == 1
+
+    def test_trauma_amplifies_reinforcement(self):
+        """创伤路径的强化效果被放大。"""
+        m = MyelinationMemory()
+        m.mark_trauma("trauma_path", context="test")
+        m.reinforce("trauma_path", success=False, saliency=1.0)
+        # Trauma paths get 1.5x multiplier on saliency effect
+        assert m.path_strength["trauma_path"] < 5.0  # Should have weakened more than normal
+
+    def test_trauma_penalty_in_path_evaluation(self):
+        """与创伤路径重叠的候选路径应被评分降低。"""
+        # Test via SlimeExplorer with trauma_memory
+        from cosmic_mycelium.infant.core.layer_3_slime_explorer import SlimeExplorer
+        m = MyelinationMemory()
+        m.trauma_paths["action_3"] = {"timestamp": 0, "context": "danger"}
+        explorer = SlimeExplorer(num_spores=3, exploration_factor=0.0, trauma_memory=m)
+        context = {"actions": ["action_1", "action_2", "action_3"]}
+        spores = explorer.explore(context)
+        # With exploration_factor=0.0, selection is purely softmax-weighted
+        # action_3 should be penalized in evaluation
+        for spore in spores:
+            score_3 = explorer._evaluate_path(["action_3"], None)
+            score_1 = explorer._evaluate_path(["action_1"], None)
+            # action_3 should not be scored higher than action_1 due to trauma penalty
+            assert score_3 <= score_1 + 0.01
+
+
+class TestDeathAndInheritance:
+    """死亡与继承 — 生命周期、遗嘱、化石层、重生。"""
+
+    def test_compile_will_returns_strongest_paths(self):
+        """编译遗嘱应返回最强的 N 条路径。"""
+        m = MyelinationMemory()
+        m.reinforce("a", success=True, saliency=1.0)
+        m.reinforce("b", success=True, saliency=0.5)
+        m.reinforce("c", success=True, saliency=0.1)
+        will = m.compile_will(top_n=2)
+        assert len(will) == 2
+        assert "a" in will
+        assert "b" in will
+
+    def test_inherit_will_absorbs_memories(self):
+        """继承遗嘱应将记忆注入当前池。"""
+        heir = MyelinationMemory()
+        will = {"ancestor_path_1": 5.0, "ancestor_path_2": 3.0}
+        count = heir.inherit_will(will, boost=0.5)
+        assert count == 2
+        assert heir.path_strength["ancestor_path_1"] == 2.5  # 5.0 * 0.5
+
+    def test_fossil_bury_and_excavate(self):
+        """化石应能被埋葬和挖掘。"""
+        from cosmic_mycelium.infant.fossil import FossilLayer, FossilRecord
+        layer = FossilLayer()
+        record = FossilRecord(
+            node_id="test_bee",
+            lifespan_cycles=1000,
+            epitaph="test",
+            core_memories={"path_x": 3.0},
+        )
+        layer.bury(record)
+        fossils = layer.excavate()
+        assert len(fossils) == 1
+        assert fossils[0].node_id == "test_bee"
+        assert fossils[0].legacy_count >= 1  # 被考古次数增加
+
+    def test_fossil_dig_retrieves_specific(self):
+        """定向挖掘应返回指定化石。"""
+        from cosmic_mycelium.infant.fossil import FossilLayer, FossilRecord
+        layer = FossilLayer()
+        layer.bury(FossilRecord(node_id="bee_a", lifespan_cycles=100))
+        layer.bury(FossilRecord(node_id="bee_b", lifespan_cycles=200))
+        record = layer.dig("bee_a")
+        assert record is not None
+        assert record.node_id == "bee_a"
+
+    def test_dying_buries_fossil(self):
+        """死亡流程应将记忆埋葬到化石层。"""
+        baby = MiniInfant("death-test", verbose=False)
+        # Run some cycles to build memory
+        baby.run(max_cycles=20)
+        # Now force death by draining hidden reserve
+        baby._hidden_energy_reserve = 0.0
+        baby._is_dead = True
+        report = baby.run(max_cycles=100)
+        assert report["status"] == "dead"
+        assert report["fossil_buried"] is True
+        assert report["will_package_size"] > 0
+
+    def test_rebirth_from_fossil(self):
+        """应能从化石层继承记忆重生。"""
+        from cosmic_mycelium.infant.fossil import FossilLayer, FossilRecord
+
+        # Create a fossil layer with an ancestor record
+        layer = FossilLayer()
+        layer.bury(FossilRecord(
+            node_id="ancestor",
+            lifespan_cycles=500,
+            core_memories={"sacred_path": 7.0, "ancient_wisdom": 5.0},
+        ))
+
+        # New baby inherits
+        baby = MiniInfant("rebirth-test", verbose=False)
+        baby._fossil_layer = layer
+        result = baby._rebirth()
+        assert result is True
+        assert baby.memory.path_strength.get("sacred_path", 0) > 0
+
+    def test_low_synergy_drains_reserve(self):
+        """低协同度应消耗隐性储备。"""
+        baby = MiniInfant("drain-test", verbose=False)
+        reserve_before = baby._hidden_energy_reserve
+        # Simulate low energy + low synergy
+        baby.hic.modify_energy(-90.0)  # energy < 20
+        baby._synergy_score = 0.1
+        for _ in range(5):
+            baby._check_vitality()
+        assert baby._hidden_energy_reserve < reserve_before
+
+    def test_vitality_check_tracks_age(self):
+        """年龄检查应随周期递增。"""
+        baby = MiniInfant("age-test", verbose=False)
+        assert baby._age == 0
+        for _ in range(10):
+            baby._check_vitality()
+            baby._cycle_count += 1
+        assert baby._age > 0
+
+
 class TestMiniInfant:
     """MiniInfant 集成测试。"""
 
