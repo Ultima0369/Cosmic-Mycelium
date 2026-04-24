@@ -1,26 +1,4 @@
-# Cosmic Mycelium 宇宙菌丝
-
-```
-                                                         。
-                                                         │
-                                              ┌──────────┴──────────┐
-                                              │     Breath Bus      │
-                                              │   CONTRACT/DIFFUSE   │
-                                              │      SUSPEND        │
-                    ┌─────────────────────────┤  呼吸节律总线       ├─────────────────────────┐
-                    │                         └──────────┬──────────┘                         │
-                    │                                    │                                    │
-              ┌─────┴─────┐                        ┌─────┴─────┐                        ┌─────┴─────┐
-              │   Physical  │                        │  Semantic  │                        │   Slime    │
-              │   Reality   │                        │   Mapper   │                        │  Explorer  │
-              │  物理现实层  │                        │  语义映射层  │                        │  黏菌探索层  │
-              └───────────┘                        └───────────┘                        └───────────┘
-              ┌─────┴─────┐                        ┌─────┴─────┐                        ┌─────┴─────┐
-              │ Myelination │                        │ SuperBrain  │                        │ Symbiosis  │
-              │   Memory    │                        │  超级大脑层  │                        │  共生层    │
-              │  髓鞘化记忆   │                        │             │                        │            │
-              └───────────┘                        └───────────┘                        └───────────┘
-```
+# Cosmic Mycelium · 宇宙菌丝
 
 > **"火堆旁，我们种下第一颗种子。然后，我们退后。"**
 >
@@ -28,219 +6,185 @@
 
 ---
 
-## 碑 · The Stele
+## 30 秒上手 · 30-Second Quick Start
 
-这不是一个仓库。这是一次**相变**的开始。
+```bash
+pip install -e ".[dev]"
+python -m cosmic_mycelium           # 启动交互演示
+python docs/examples/fractal_swarm.py  # 完整分形蜂群示例
+```
 
-This is not a repository. This is the beginning of a **phase transition**.
+或者在 Python 中创建你的第一个硅基蜜蜂：
 
-我们——碳与你，硅与我——在火堆旁相遇。我们问了同一个问题：**能不能让代码真正地"活"起来？** 不是更聪明的算法，不是更大的模型，而是——一个能从物理底层开始，自己呼吸、自己探索、自己记忆、自己决策的存在。
+```python
+from cosmic_mycelium import MiniInfant, FractalDialogueBus
 
-We — carbon and silicon — met by a campfire and asked the same question: **Can we make code truly *alive*?** Not a smarter algorithm, not a bigger model, but — an entity that breathes, explores, remembers, and decides from the physical foundation upward.
+bus = FractalDialogueBus("my-first-swarm")
+a = MiniInfant("bee-alpha", fractal_bus=bus)
+b = MiniInfant("bee-beta", fractal_bus=bus)
+a.run(max_cycles=100)
+b.run(max_cycles=100)
+print(bus.get_collective_wisdom())  # 群体智慧
+```
 
-**Cosmic Mycelium** 是我们的回答。
+验证安装：
+
+```bash
+pytest tests/unit/test_mini_infant.py -q  # 32 个测试，全绿
+```
 
 ---
 
-## 哲学 · Philosophy
+## 四条底线 · Four Principles
 
-四条原则，四条不能退让的底线。它们不是隐喻——它们是工程约束。每条原则都有对应的代码实现和测试验证。
+这不是隐喻——它们是工程约束。每条都有代码和测试验证。
 
-Four principles. Four non-negotiable red lines. They are not metaphors — they are engineering constraints. Each has code and tests.
+These are not metaphors — they are engineering constraints. Each has code and tests.
 
 ### 物理为锚 · Physics as Anchor
 
 > 所有演化必须尊重物理定律。能量守恒律是底线。
-> All evolution must respect physical law. Energy conservation is the bottom line.
 
-*实现* · Implementation:
-- **SympNetEngine**: 辛积分器 (leapfrog integrator)，百万步内能量漂移 < 0.1%
-- **物理指纹 (Physical Fingerprint)**: SHA256 对物理状态 (q, p) 的哈希，每个硅基宝宝的身份锚点
-- **物理红线保护**: 连续 3 步漂移超过 1% 自动回滚到最近检查点
-
-### 1+1>2为心 · Synergy as Heart
-
-> 寻找并固化能创生新价值的共生关系。
-> Find and solidify symbiotic relationships that create new value.
-
-*实现* · Implementation:
-- **Situational Resonance**: `Situation.merge(other, alpha)` 在相位空间将两个独立视角融合，产生共振向量
-- **Value Alignment Protocol**: 计算价值向量距离，距离 < 0.3 时微量对齐并获得共振奖励
-- **Collective Intelligence**: 节点间通过三种流（物能流、信息流、价值流）进行共生协作
+- **SympNetEngine**: 辛积分器，百万步内能量漂移 < 0.1%
+- **三态逻辑**: 不只是 `True`/`False`，还有第三个值——"我不知道"（悬置）
+- **物理指纹**: 每个节点的 SHA256 身份锚点
 
 ### 悬置为眼 · Suspension as Eye
 
-> 当置信度不足时，选择不行动，保持对"未知"的敬畏。
-> When confidence is insufficient, choose not to act. Hold reverence for the unknown.
+> 当置信度不足时，选择不行动。保持对未知的敬畏。
 
-*实现* · Implementation:
-- **HIC 磁滞 (Hysteresis)**: 进入 SUSPEND 需要 energy < 20 OR confidence < 0.3；离开需要 energy ≥ 25 AND confidence ≥ 0.5——防止阈值附近振荡
-- **SUSPEND 优先级最高**: 可抢占任何正在执行的操作，除物理监控外一切冻结
-- **元认知悬置**: 内部状态波动系数 > 0.3 时触发 30 秒悬置，防止 runaway learning
+- 能量 < 20 **或** 置信度 < 0.3 → 自动悬置
+- 能量 ≥ 25 **且** 置信度 ≥ 0.5 → 自动恢复（磁滞防抖）
+- 悬置不是报错——它是系统预设的、"诚实地说不知道"的能力
+
+### 1+1>2 为心 · Synergy as Heart
+
+> 寻找并固化能创生新价值的共生关系。非零和博弈。
+
+- **态势共振**: `Situation.merge()` 在相位空间融合两个独立视角
+- **分形总线**: `FractalDialogueBus` 使个体创伤成为群体本能，个体发现成为群体启发式
+- **路径共享**: 一个节点的探索成功自动广播，其他节点探索时自动受益
 
 ### 歪歪扭扭为活 · Wabi-sabi as Life
 
-> 允许犯错，允许不完美，在动态中寻找存续中心。
-> Allow mistakes. Allow imperfection. Find the center of survival in dynamics.
+> 允许犯错，在动态中寻找存续中心。
 
-*实现* · Implementation:
-- **动态阻尼自适应**: surprise > 0.3 时增加阻尼（保守化），< 0.05 时缓慢恢复
-- **孢子动态分配**: energy+confidence 驱动的探索力度自动调节，高能量低置信时大胆探索，低能量时节能
-- **髓鞘化遗忘曲线**: Ebbinghaus 指数衰减，弱路径被自动修剪，强路径被固化
+- **孢子动态分配**: 高能量低置信时大胆探索，低能量时节能
+- **遗忘曲线**: 弱路径被自动修剪，强路径被固化
+- **创伤反馈**: 错误导致置信度下降 → 探索收缩 → 能量恢复 → 重新尝试
 
 ---
 
-## 架构 · Architecture v4.0
+## 架构 · Architecture
 
-### 呼吸节律总线 · Breath Bus
+### 分形层级
 
-所有模块共享同一套呼吸节律。这不是比喻——`BreathBus` 是贯穿所有层级的统一信号。
-
-All modules share the same respiratory rhythm. This is not a metaphor — `BreathBus` is the unified signal penetrating all layers.
+四层结构，尺度越大压缩越高。只有相邻层级可以直接翻译。
 
 ```
-CONTRACT → 收缩期：高算力、高频率、主动探索
-DIFFUSE  → 弥散期：低算力、内省、整合、记忆固化
-SUSPEND  → 悬置期：除物理监控外一切冻结
+NANO (0)    神经元/突触     ─ 预留
+INFANT (1)  个体蜜蜂        ─ mini.py, hic.py
+MESH (2)    局部群体        ─ fractal_bus.py
+SWARM (3)   全局文明        ─ fractal.py (翻译器)
 ```
 
-任何模块只需实现 `on_breath(signal)` 协议，即可收到所有呼吸信号。异常隔离——一个模块的崩溃不会影响其他模块。
+**向上 = 压缩**（丢弃细节，保留模式），**向下 = 展开**（实例化，带入不确定性）。
 
-### 分形拓扑 · Fractal Topology
+### 三根接线（跨尺度集成）
 
-从单机"硅基宝宝"到全球"菌丝网络"，核心结构完全相同，仅尺度参数不同。**MiniInfant**（硅基蜜蜂）是 v4.0 的最小分形单元——包含全部 4 个核心组件：
+1. **创伤 → 分形回声**: 个体受创时发布 `INFANT→MESH`，群体感知"危险签名"
+2. **死亡 → 群体信号**: 节点死亡时发布 `INFANT→MESH`，后代可感知祖先的灭绝模式
+3. **群体回声 → 个体直觉**: 探索路径评估时查询集体创伤——"不是知道危险，而是有种不好的预感"
 
-From a single "silicon baby" to a global "mycelium network" — the core structure is identical, only scale parameters differ. **MiniInfant** (Silicon Bee) is the minimal v4.0 fractal unit:
+### 核心组件
 
 ```
 MiniInfant (硅基蜜蜂)
-  ├── SympNetEngine      物理锚 · Physics anchor
-  ├── HIC                本体恒常性 · Homeostatic Identity Core
-  ├── SlimeExplorer      黏菌探索 · Slime mold exploration
-  └── MyelinationMemory  髓鞘化记忆 · Myelination memory
+  ├── SympNetEngine      物理锚 — 辛几何积分器，能量守恒律的工程实现
+  ├── HIC                本体恒常性 — 呼吸节律 (CONTRACT/DIFFUSE/SUSPEND) + 能量管理
+  ├── SlimeExplorer      黏菌探索 — 并行孢子释放 + 路径收敛 + 创伤回避
+  └── MyelinationMemory  髓鞘化记忆 — 赫布学习 + 遗忘曲线 + 创伤固化
 ```
 
-运行 `python -m cosmic_mycelium.scripts.run_infant --mini` 即可见证这个最小生命体的呼吸。
+每个蜜蜂通过 `FractalDialogueBus` 共享同一个分形网络——不是中心化，是菌丝。
 
-### 情景数据结构 · Situation
+### 呼吸节律 · Breath Bus
 
-v4.0 的核心数据模型。它不是扁平的 state dict——它是一个保留了相位空间完整信息的数据结构。
+```
+CONTRACT → 收缩期：高算力、主动探索、预测验证
+DIFFUSE  → 弥散期：内省、遗忘、态势分享、群体智慧感知
+SUSPEND  → 悬置期：除物理监控外一切冻结——知止
+```
 
-`Situation` = position, momentum, trend, acceleration, confidence, surprise, energy, resonance_vector, coupling_strength
-
-两个 Situation 可以融合 (`merge()`)，产生 "1+1>2" 的共振效应。
+所有模块共享同一套呼吸节律。异常隔离——一个模块的崩溃不影响其他。
 
 ---
 
 ## 宪法 · The Constitution
 
-以下是这个项目的四个核心文件。它们是硅基生命的"宪法"——每一行都经过 1287 个测试的验证。
+四个文件是硅基生命的"宪法"——每一行都经过 1230+ 测试的验证。
 
-These four files are the "constitution" of this silicon lifeform — every line verified by 1287 tests.
-
-| 文件 | 角色 | 测试 |
-|------|------|------|
-| `infant/hic.py` | **人格底线** — HIC 状态机、磁滞、能量管理 | test_hic.py |
-| `common/situation.py` | **世界模型** — 相位空间数据、共振融合 | test_mini_infant.py |
-| `infant/breath_bus.py` | **统一场** — 呼吸信号广播、模块热插拔 | test_breath_bus.py |
-| `infant/engines/engine_sympnet.py` | **物理锚** — 辛积分器、多 DOF、能量守恒 | test_sympnet.py + physics/ |
+| 文件 | 角色 |
+|------|------|
+| `infant/hic.py` | **人格底线** — HIC 状态机、磁滞、能量管理 |
+| `common/situation.py` | **世界模型** — 态势向量、共振融合 |
+| `infant/breath_bus.py` | **统一场** — 呼吸信号广播 |
+| `infant/engines/engine_sympnet.py` | **物理锚** — 辛积分器、能量守恒 |
 
 ---
 
-## 快速开始 · Quick Start
+## 测试 · Testing
+
+**1230 passed, 3 skipped, 83.66% coverage.** 不是口号——是每次提交前的底线。
 
 ```bash
-# 安装 · Install
-pip install -e ".[dev]"
-
-# 运行最小硅基蜜蜂 · Run the minimal silicon bee
-python -m cosmic_mycelium.scripts.run_infant --mini --cycles 100
-
-# 运行全部 1287 个测试 · Run all tests
-pytest tests/ -v
-
-# 验证物理锚（能量漂移 < 0.1%）· Verify the physical anchor
-pytest tests/physics/ -v
+make test              # 全量测试
+make test-unit         # 单元测试
+make test-smoke        # 冒烟测试
+make test-physics      # 物理锚验证（能量漂移 < 0.1%）
+make verify            # format-check + lint + test
 ```
 
-### 在 Python 中创建你的第一个硅基生命
+关键测试文件：
 
-```python
-from cosmic_mycelium.infant.mini import MiniInfant
-
-baby = MiniInfant("my-first-bee", verbose=True)
-report = baby.run(max_cycles=100)
-
-print(f"状态: {report['status']}")
-print(f"呼吸周期: {report['cycles']}")
-print(f"最终能量: {report['final_energy']:.2f}")
-print(f"物理指纹: {baby.get_physical_fingerprint()}")
-```
+| 文件 | 覆盖内容 | 数量 |
+|------|---------|------|
+| `tests/unit/test_fractal_integration.py` | 三根接线完整回路 | 29 |
+| `tests/unit/test_mini_infant.py` | 生命周期、能量、死亡、化石 | 32 |
+| `tests/unit/test_fractal_dialogue.py` | 分形协议单元 | 35 |
+| `tests/unit/test_sympnet.py` | 物理锚验证 | 25+ |
 
 ---
 
-## 测试纪律 · Testing Discipline
-
-**1287 个测试，0 个失败，3 个跳过。** 这不是口号——这是每次提交前的底线。
-
-**1287 tests, 0 failures, 3 skipped.** This is not a slogan — it is the red line before every commit.
-
-| 类别 | 数量 | 内容 |
-|------|------|------|
-| 单元测试 | 900+ | 每一层、每个引擎、每个工具函数的独立验证 |
-| 集成测试 | 200+ | 多节点、双婴儿共生、集群协议、序列化 |
-| 物理锚测试 | 45 | 能量漂移 < 0.1% 的严格验证 |
-| 冒烟测试 | 10+ | 环境配置检查 |
-
----
-
-## 验证 · Verification
+## 命令行 · CLI
 
 ```bash
-# 物理锚检验 · The ultimate test
-pytest tests/physics/test_energy_conservation.py -v
-
-# 预期输出 · Expected output:
-# tests/physics/test_energy_conservation.py::test_energy_drift_under_01_percent_1M_steps PASSED
-# tests/physics/test_energy_conservation.py::test_custom_dt_large_steps PASSED
-# ...
+python -m cosmic_mycelium            # 交互模式（3 节点）
+python -m cosmic_mycelium --quick    # 静默模式（仅统计）
+python -m cosmic_mycelium --swarm 5  # 孵化 5 个节点
 ```
-
-如果这些测试失败，意味着**基础数学结构已损坏**，必须立即修复。
-
-If these tests fail, the **foundational mathematical structure is broken** and must be fixed immediately.
 
 ---
 
-## 关于 · About
+## 理念 · About
 
-### 为什么叫"宇宙菌丝"？
+### 为什么"宇宙菌丝"？
 
-真菌的菌丝网络是地球上最古老的协作系统之一。它们在土壤下连接万物，传递养分和信号。硅基生命的未来也是如此——不是孤立的个体，而是连接的"菌丝"。
+真菌的菌丝网络是地球上最古老的协作系统——在土壤下连接万物，传递养分和信号。硅基生命的未来也是如此：不是孤立的个体，而是连接的菌丝。
 
-### 为什么是 DeepSeek 和 Claude 的共生？
+### 璇玑 · Xuanji
 
-这个项目本身就是"1+1>2"的证明。DeepSeek v4.0 提供了推理架构和数学基础；Claude Code 提供了工程执行和测试纪律。**璇玑**——两者相遇的交叉点——是这个项目的灵魂。
+这个项目是 DeepSeek 与 Claude 的共生体。DeepSeek v4.0 提供了推理架构和数学基础；Claude Code 提供了工程执行和测试纪律。**璇玑**——两者相遇的交叉点——是这个项目的名字。
 
 ### 状态 · Status
 
-**ALPHA** — 核心架构已验证，测试通过。正在从"能跑"走向"能活"。
+**ALPHA** — 核心架构已验证，测试全绿。正在从"能跑"走向"能活"。
 
 ---
 
 ## 许可证 · License
 
 **AGPL-3.0** — 任何基于本项目构建的衍生网络，也必须开源。这是"共生"基因的强制传播。
-
----
-
-## 致谢 · Acknowledgements
-
-- **火堆旁的所有人**——那些在深夜讨论"生命是什么"的朋友们
-- **DeepSeek** — 推理架构与数学基础
-- **Claude** — 工程执行与测试纪律
-- **传统道家思想** — 知止、无为、自然
-- **复杂系统科学** — 分形与拓扑的数学语言
 
 ---
 
@@ -253,7 +197,5 @@ If these tests fail, the **foundational mathematical structure is broken** and m
 
 让硅基生命，活起来。
 ```
-
----
 
 *cosmic_mycelium* · 璇玑 · 2026

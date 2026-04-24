@@ -48,6 +48,7 @@ class SlimeExplorer:
         min_path_length: int = 1,
         max_path_length: int = 5,
         trauma_memory: Any = None,
+        fractal_bus: Any = None,
     ):
         self.num_spores = num_spores
         self.exploration_factor = exploration_factor
@@ -63,6 +64,8 @@ class SlimeExplorer:
         self.trauma_memory = trauma_memory
         self._flashback_active: bool = False
         self._flashback_context: dict | None = None
+        # Fractal Dialogue integration (collective wisdom)
+        self.fractal_bus = fractal_bus
 
     def explore(self, context: dict, goal_hint: str | None = None) -> list[Spore]:
         """
@@ -84,6 +87,14 @@ class SlimeExplorer:
         confidence = context.get("confidence")
         num_spores = self.num_spores  # default: use configured value
 
+        # ── 集体不安感知：MESH 有创伤回声时减少探索量 ──
+        collective_unease = False
+        if self.fractal_bus is not None:
+            try:
+                collective_unease = self.fractal_bus.has_collective_trauma()
+            except Exception:
+                pass
+
         if energy is not None and confidence is not None:
             if energy > 50.0 and confidence < 0.5:
                 num_spores = self.num_spores  # max: 大胆探索
@@ -91,6 +102,22 @@ class SlimeExplorer:
                 num_spores = max(3, self.num_spores // 2)  # normal
             else:
                 num_spores = max(2, self.num_spores // 5)  # 节能模式
+
+        # 集体不安：群体有创伤回声时收缩探索（谨慎）
+        if collective_unease:
+            num_spores = max(2, num_spores // 2)
+
+        # ── 导入群体共享路径：别的节点成功过的路径信息素加成 ──
+        if self.fractal_bus is not None:
+            try:
+                shared = self.fractal_bus.get_shared_paths(min_quality=0.5)
+                for entry in shared:
+                    shared_path = entry.get("path", "")
+                    # 给共享路径增加信息素，让后续探索偏向它
+                    current = self.pheromone_map.get(shared_path, 0.0)
+                    self.pheromone_map[shared_path] = max(current, entry["quality"] * 0.5)
+            except Exception:
+                pass
 
         for i in range(num_spores):
             spore_id = f"spore_{self._spore_counter:06d}_{i}"
@@ -158,7 +185,7 @@ class SlimeExplorer:
             0.5 if (goal and path and goal.lower() in path[-1].lower()) else 0.0
         )
 
-        # ── Trauma penalty ──
+        # ── Individual trauma penalty ──
         trauma_penalty = 0.0
         if self.trauma_memory is not None:
             for trauma_path in self.trauma_memory.trauma_paths:
@@ -167,7 +194,18 @@ class SlimeExplorer:
                     trauma_penalty = 0.5
                     break
 
-        return float(pheromone * 0.7 + goal_bonus * 0.3 - trauma_penalty * 0.3)
+        # ── Collective trauma penalty (群体本能) ──
+        collective_penalty = 0.0
+        if self.fractal_bus is not None:
+            try:
+                if self.fractal_bus.has_collective_trauma():
+                    # 集体不安：降低所有探索路径的评分（"氛围不对"）
+                    collective_penalty = 0.2
+            except Exception:
+                pass
+
+        total_penalty = trauma_penalty * 0.5 + collective_penalty
+        return float(pheromone * 0.7 + goal_bonus * 0.3 - total_penalty * 0.3)
 
     def converge(
         self, threshold: float = 0.6, spores: list[Spore] | None = None
@@ -223,6 +261,17 @@ class SlimeExplorer:
                     "triggered_at": time.time(),
                     "flashbacks": flashbacks,
                 }
+
+        # ── 共享成功路径到 MESH（一个节点的成果成为群体的启发式）──
+        if self.fractal_bus is not None and best.quality >= 0.6:
+            try:
+                self.fractal_bus.publish_path_success(
+                    path=best.path,
+                    quality=best.quality,
+                    source_id=getattr(self, "_source_id", "explorer"),
+                )
+            except Exception:
+                pass
 
         return best
 

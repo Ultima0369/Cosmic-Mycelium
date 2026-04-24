@@ -27,10 +27,12 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
+from cosmic_mycelium.common.fractal import Scale
 from cosmic_mycelium.common.situation import Situation
 from cosmic_mycelium.infant.breath_bus import BreathAware
 from cosmic_mycelium.infant.engines.engine_sympnet import SympNetEngine
 from cosmic_mycelium.infant.fossil import FossilLayer, FossilRecord
+from cosmic_mycelium.infant.fractal_bus import FractalDialogueBus
 from cosmic_mycelium.infant.hic import BreathState, HIC, HICConfig
 
 logger = logging.getLogger(__name__)
@@ -254,6 +256,7 @@ class MiniInfant:
         diffuse_duration: float = 0.005,
         suspend_duration: float = 5.0,
         exploration_factor: float = 0.3,
+        fractal_bus: FractalDialogueBus | None = None,
         verbose: bool = True,
     ):
         """
@@ -272,6 +275,7 @@ class MiniInfant:
         """
         self.id = infant_id
         self.verbose = verbose
+        self.fractal_bus = fractal_bus
 
         # 零件 1: 物理直觉
         self.physics = SympNetEngine(
@@ -302,7 +306,9 @@ class MiniInfant:
             num_spores=10,
             exploration_factor=exploration_factor,
             trauma_memory=self.memory,  # 注入创伤记忆
+            fractal_bus=self.fractal_bus,  # 注入群体智慧
         )
+        self.explorer._source_id = self.id  # 路径共享时标识来源
 
         # 物理状态
         self.position = 1.0   # q: 位置
@@ -332,6 +338,17 @@ class MiniInfant:
                   f"DIFFUSE {diffuse_duration*1000:.0f}ms / "
                   f"SUSPEND {suspend_duration:.0f}s")
 
+    # ── 状态查询 ─────────────────────────────────────────────────────
+
+    @property
+    def status(self) -> str:
+        """当前状态: 'alive' | 'dead' | 'suspended'。"""
+        if self._is_dead:
+            return "dead"
+        if hasattr(self.hic, 'breath_state') and self.hic.breath_state == BreathState.SUSPEND:
+            return "suspended"
+        return "alive"
+
     # ── 态势构建 ─────────────────────────────────────────────────────
 
     def _build_situation(self) -> Situation:
@@ -355,6 +372,71 @@ class MiniInfant:
             resonance_intensity=resonance_intensity,
             source_id=self.id,
         )
+
+    # ── 分形网络发布 ──────────────────────────────────────────────────
+
+    def _publish_trauma_to_fractal(self) -> None:
+        """创伤事件 → INFANT→MESH 分形发布。个体痛苦成为群体的经验。"""
+        if self.fractal_bus is None:
+            return
+        try:
+            # 先在 INFANT 层级记录（与本地的呼吸信号呼应）
+            self.fractal_bus.echo_detector.record(
+                signature="critical_state",
+                scale=Scale.INFANT,
+                metadata={"event_type": "trauma", "source": self.id},
+            )
+            self.fractal_bus.publish_trauma(
+                situation_data={
+                    "energy": self.hic.energy,
+                    "confidence": self.confidence,
+                    "surprise": self.surprise,
+                    "resonance_intensity": self.situation.resonance_intensity,
+                    "confidence_drop": max(0.0, self._prev_confidence - self.confidence),
+                },
+                source_id=self.id,
+            )
+            if self.verbose:
+                print(f"[{self.id}] 📡 创伤信号发布到 MESH")
+        except Exception as e:
+            logger.warning("[%s] 发布创伤失败: %s", self.id, e)
+
+    def _publish_death_to_fractal(self) -> None:
+        """死亡事件 → INFANT→MESH 分形发布。牺牲成为文明的记忆。"""
+        if self.fractal_bus is None:
+            return
+        try:
+            cause = (
+                "reserve_depleted" if self._hidden_energy_reserve <= 0
+                else "old_age" if self._age >= self._max_age
+                else "energy_depleted" if self.hic.energy <= 0
+                else "unknown"
+            )
+            self.fractal_bus.publish_death(
+                death_data={
+                    "cause": cause,
+                    "lifespan_cycles": self._cycle_count,
+                    "synergy_score": self._synergy_score,
+                    "hidden_reserve": self._hidden_energy_reserve,
+                    "final_energy": self.hic.energy,
+                    "memories_count": len(self.memory.path_strength),
+                },
+                source_id=self.id,
+            )
+            if self.verbose:
+                print(f"[{self.id}] 📡 死亡信号发布到 MESH")
+        except Exception as e:
+            logger.warning("[%s] 发布死亡失败: %s", self.id, e)
+
+    def _query_collective_wisdom(self) -> dict[str, Any]:
+        """查询群体智慧（MESH 回响），返回可能影响决策的集体经验。"""
+        if self.fractal_bus is None:
+            return {}
+        try:
+            return self.fractal_bus.get_collective_wisdom()
+        except Exception as e:
+            logger.warning("[%s] 查询群体智慧失败: %s", self.id, e)
+            return {}
 
     # ── 蜜蜂心跳 ─────────────────────────────────────────────────────
 
@@ -433,6 +515,8 @@ class MiniInfant:
             )
             if self.verbose:
                 print(f"[{self.id}] ⚠️ 创伤标记: {trauma_path[:48]}...")
+            # 接线一：创伤 → 分形回声
+            self._publish_trauma_to_fractal()
 
         # 5. 自我修正：如果物理模型偏离现实，调整
         if self.surprise > 0.001:
@@ -477,12 +561,45 @@ class MiniInfant:
         self._cycle_count += 1
 
     def _diffuse_phase(self) -> None:
-        """弥散阶段：低功耗内省，记忆巩固。"""
+        """弥散阶段：低功耗内省，记忆巩固，群体智慧感知。"""
         # 遗忘：清理长期不用的路径
         self.memory.forget(dt_seconds=self.hic.config.diffuse_duration)
 
         # 微调物理模型
         self.physics.adapt()
+
+        # 接线三：群体智慧 → 个体直觉（"品一品集体的氛围"）
+        if self.fractal_bus is not None:
+            # 先分享自己的态势到 MESH（日常交流，非仅创伤/死亡）
+            try:
+                self.fractal_bus.publish_situation_update(
+                    situation_data={
+                        "energy": self.hic.energy,
+                        "confidence": self.confidence,
+                        "timestamp": self.situation.timestamp,
+                        "source_id": self.id,
+                    },
+                    source_id=self.id,
+                )
+            except Exception:
+                pass
+
+            # 查询集体创伤记忆
+            wisdom = self._query_collective_wisdom()
+            if wisdom.get("collective_trauma_count", 0) > 0:
+                self.confidence = max(0.1, self.confidence - 0.01)
+
+            # 查询集体态势（群体能量/置信度趋势）
+            try:
+                collective = self.fractal_bus.get_collective_situation()
+                if collective.get("collective_tension", 0) > 0.5:
+                    # 群体整体紧张 → 更保守（节能）
+                    self.hic.modify_energy(-2.0)  # 紧张氛围消耗额外能量
+                if collective.get("collective_tension", 0) < 0.1:
+                    # 群体整体放松 → 微幅提升信心
+                    self.confidence = min(0.9, self.confidence + 0.005)
+            except Exception:
+                pass
 
         # 恢复能量
         self.hic.modify_energy(self.hic.config.recovery_rate)
@@ -640,6 +757,9 @@ class MiniInfant:
             },
         )
         self._fossil_layer.bury(fossil)
+
+        # 接线二：死亡 → 分形信号（牺牲成为文明的记忆）
+        self._publish_death_to_fractal()
 
         if self.verbose:
             print(f"\n[{self.id}] 💀 死亡报告")

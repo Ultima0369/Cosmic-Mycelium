@@ -21,6 +21,8 @@ from typing import Any
 
 import numpy as np
 
+from cosmic_mycelium.common.fractal import Scale
+
 
 @dataclass
 class Situation:
@@ -56,6 +58,9 @@ class Situation:
     trauma_flag: bool = False                    # 是否被标记为【创伤】
     trauma_timestamp: float = 0.0                # 创伤发生时间
     trauma_context: str = ""                     # 创伤时的上下文描述
+
+    # ── 分形层级 ──
+    scale: Scale = Scale.INFANT                      # 当前态势所属的分形层级
 
     # ── 元数据 ──
     timestamp: float = 0.0
@@ -144,6 +149,7 @@ class Situation:
             "trauma_flag": self.trauma_flag,
             "trauma_timestamp": self.trauma_timestamp,
             "trauma_context": self.trauma_context,
+            "scale": self.scale.value,
             "timestamp": self.timestamp,
             "source_id": self.source_id,
         }
