@@ -446,9 +446,8 @@ class KnowledgeTransfer(InfantSkill):
         if callback is not None:
             try:
                 callback(imported, rejected)
-            except Exception:
-                # Callback errors should not crash the handler
-                pass
+            except (TypeError, RuntimeError) as e:
+                logger.warning("KnowledgeTransfer: callback failed: %s", e)
 
         return imported, rejected
 

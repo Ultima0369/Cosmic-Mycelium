@@ -5,6 +5,7 @@ Traces requests and events across infant nodes and cluster layers.
 
 from __future__ import annotations
 
+import os
 import time
 import uuid
 from contextlib import contextmanager
@@ -19,8 +20,12 @@ try:
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import (
+        BatchSpanProcessor,
         ConsoleSpanExporter,
         SimpleSpanProcessor,
+    )
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+        OTLPSpanExporter,
     )
 
     OPENTELEMETRY_AVAILABLE = True
@@ -61,11 +66,11 @@ class DistributedTracer:
         console = ConsoleSpanExporter()
         provider.add_span_processor(SimpleSpanProcessor(console))
 
-        # OTLP exporter for production (configurable endpoint)
-        # otlp_endpoint = config.get("otlp_endpoint")
-        # if otlp_endpoint:
-        #     otlp = OTLPSpanExporter(endpoint=otlp_endpoint)
-        #     provider.add_span_processor(BatchSpanProcessor(otlp))
+        # OTLP exporter for production (configured via OTEL_EXPORTER_OTLP_ENDPOINT)
+        otlp_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+        if otlp_endpoint:
+            otlp = OTLPSpanExporter(endpoint=otlp_endpoint)
+            provider.add_span_processor(BatchSpanProcessor(otlp))
 
         trace.set_tracer_provider(provider)
         self._tracer = trace.get_tracer(service_name)

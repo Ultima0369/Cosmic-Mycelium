@@ -37,6 +37,119 @@ logger = logging.getLogger(__name__)
 
 
 # ====================================================================
+# 事件优先级
+# ====================================================================
+
+class EventPriority(Enum):
+    """
+    事件优先级 — 事件驱动呼吸的状态触发级别。
+
+    优先级顺序（从高到低）:
+      CRITICAL > HIGH > MEDIUM > LOW
+
+    CRITICAL: 能量极低 (<20) 或置信度极低 (<0.3)，需要立即 SUSPEND
+    HIGH:     能量偏低 (20-40) 或置信度偏低 (0.3-0.5)，需要 CONTRACT 聚焦
+    MEDIUM:   中等状态，正常呼吸即可
+    LOW:      一切良好，可以 DIFFUSE
+    """
+    CRITICAL = 4
+    HIGH = 3
+    MEDIUM = 2
+    LOW = 1
+
+    def __lt__(self, other: EventPriority) -> bool:
+        if not isinstance(other, EventPriority):
+            return NotImplemented
+        return self.value < other.value
+
+    def __le__(self, other: EventPriority) -> bool:
+        if not isinstance(other, EventPriority):
+            return NotImplemented
+        return self.value <= other.value
+
+    def __gt__(self, other: EventPriority) -> bool:
+        if not isinstance(other, EventPriority):
+            return NotImplemented
+        return self.value > other.value
+
+    def __ge__(self, other: EventPriority) -> bool:
+        if not isinstance(other, EventPriority):
+            return NotImplemented
+        return self.value >= other.value
+
+
+# ====================================================================
+# 呼吸事件
+# ====================================================================
+
+@dataclass
+class BreathEvent:
+    """
+    呼吸事件 — 驱动呼吸状态转换的外部或内部事件。
+
+    Attributes:
+        event_type: 事件类型 (如 "sensor", "internal", "external")
+        priority: 事件优先级 (决定状态迁移方向)
+        energy: 触发事件时的能量值
+        confidence: 触发事件时的置信度
+        timestamp: 事件创建时间
+
+    Usage:
+        # 自动推断优先级
+        event = BreathEvent.from_state(energy=15.0, confidence=0.9)
+        assert event.priority == EventPriority.CRITICAL
+
+        # 显式指定优先级
+        event = BreathEvent("custom", EventPriority.HIGH, 50.0, 0.6)
+    """
+
+    event_type: str
+    priority: EventPriority
+    energy: float
+    confidence: float
+    timestamp: float = field(default_factory=time.time)
+
+    @classmethod
+    def from_state(
+        cls,
+        energy: float,
+        confidence: float,
+        event_type: str = "sensor",
+    ) -> BreathEvent:
+        """
+        从能量和置信度自动推断优先级，创建呼吸事件。
+
+        Priority mapping:
+          - CRITICAL: energy < 20 or confidence < 0.3
+          - HIGH:     energy < 40 or confidence < 0.5
+          - MEDIUM:   energy < 60 or confidence < 0.7
+          - LOW:      otherwise
+        """
+        if energy < 20.0 or confidence < 0.3:
+            priority = EventPriority.CRITICAL
+        elif energy < 40.0 or confidence < 0.5:
+            priority = EventPriority.HIGH
+        elif energy < 60.0 or confidence < 0.7:
+            priority = EventPriority.MEDIUM
+        else:
+            priority = EventPriority.LOW
+        return cls(
+            event_type=event_type,
+            priority=priority,
+            energy=energy,
+            confidence=confidence,
+        )
+
+    def __repr__(self) -> str:
+        return (
+            f"BreathEvent({self.event_type}, "
+            f"priority={self.priority.name}, "
+            f"energy={self.energy:.1f}, "
+            f"confidence={self.confidence:.2f})"
+        )
+
+
+# ====================================================================
 # 呼吸信号
 # ====================================================================
 
@@ -264,6 +377,7 @@ class BreathBus:
         self._eco_islands: dict[str, set[str]] = {}
         # 轻量级回调
         self._callbacks: list[BreathCallback] = []
+        self._max_callbacks: int = 256
         # 信号历史 (用于调试和监控)
         self._history: list[BreathSignal] = []
         self._max_history: int = 1000
@@ -274,6 +388,9 @@ class BreathBus:
         self._election_in_progress: bool = False
         self._health_history: list[float] = []
         self._max_health_history: int = 100
+        # 事件驱动队列 (maxsize=0 表示无上限)
+        self._event_queue: list[BreathEvent] = []
+        self._max_event_queue: int = 10000
 
     # ── 注册/注销 ───────────────────────────────────────────────────
 
@@ -298,6 +415,9 @@ class BreathBus:
             callback: 接收 BreathSignal 的回调函数
             name: 回调名称 (用于日志)
         """
+        if len(self._callbacks) >= self._max_callbacks:
+            self._callbacks.pop(0)
+            logger.warning("[%s] 回调 %s 超过上限，淘汰最旧回调", self.name, name)
         self._callbacks.append(callback)
         logger.debug("[%s] 回调 %s 注册到呼吸总线", self.name, name)
 
@@ -585,6 +705,89 @@ class BreathBus:
 
         return results
 
+    # ── 事件驱动 ────────────────────────────────────────────────────
+
+    def push_event(self, event: BreathEvent) -> None:
+        """
+        向队列中添加一个呼吸事件。
+
+        事件按优先级降序排列（CRITICAL 最先被处理）。
+        同级事件按 FIFO 顺序处理。
+
+        Args:
+            event: 要加入队列的呼吸事件
+        """
+        if self._max_event_queue > 0 and len(self._event_queue) >= self._max_event_queue:
+            discarded = self._event_queue.pop(0)
+            logger.warning("[%s] 事件队列满，丢弃最旧事件: %s", self.name, discarded)
+        self._event_queue.append(event)
+        self._event_queue.sort(key=lambda e: e.priority.value, reverse=True)
+        logger.debug(
+            "[%s] 事件入队: %s (队列长度: %d)",
+            self.name, event, len(self._event_queue),
+        )
+
+    def has_pending_events(self) -> bool:
+        """
+        检查是否有待处理的事件。
+
+        Returns:
+            True 如果事件队列非空
+        """
+        return len(self._event_queue) > 0
+
+    def drain_events(self, max_events: int = 5) -> list[BreathEvent]:
+        """
+        从队列中取出最高优先级的若干事件。
+
+        始终返回当前队列中优先级最高的事件（CRITICAL > HIGH > MEDIUM > LOW）。
+        同级事件按先入先出顺序返回。
+
+        Args:
+            max_events: 最多取出的事件数 (默认 5)
+
+        Returns:
+            取出的最高优先级事件列表，按优先级降序排列
+        """
+        result = self._event_queue[:max_events]
+        self._event_queue = self._event_queue[max_events:]
+        logger.debug(
+            "[%s] 排出 %d 个事件 (剩余: %d)",
+            self.name, len(result), len(self._event_queue),
+        )
+        return result
+
+    def suggest_state(self, hic: HIC) -> BreathState:
+        """
+        基于最高优先级事件，建议 HIC 进入的呼吸状态。
+
+        不会修改 HIC 的状态，仅从事件队列中读取最高优先级事件
+        并返回建议的 BreathState。
+
+        State mapping:
+          - CRITICAL 事件 → SUSPEND (能量极低或置信度极低，立即悬置)
+          - HIGH 事件     → CONTRACT (能量/置信度偏低，收缩聚焦)
+          - MEDIUM/LOW    → DIFFUSE (状态良好，弥散放松)
+
+        Args:
+            hic: HIC 实例 (用于当无事件时返回当前状态)
+
+        Returns:
+            建议的 BreathState
+        """
+        if not self._event_queue:
+            return hic.state
+
+        top_event = self._event_queue[0]
+
+        # 使用事件自身的能量/置信度做阈值判断
+        if top_event.energy < 20.0 or top_event.confidence < 0.3:
+            return BreathState.SUSPEND
+        elif top_event.energy < 40.0 or top_event.confidence < 0.5:
+            return BreathState.CONTRACT
+        else:
+            return BreathState.DIFFUSE
+
     # ── 状态查询 ────────────────────────────────────────────────────
 
     @property
@@ -621,6 +824,7 @@ class BreathBus:
             "election_in_progress": self._election_in_progress,
             "history_length": len(self._history),
             "last_broadcast_time": self._last_broadcast_time,
+            "event_queue_length": len(self._event_queue),
         }
 
 

@@ -115,6 +115,8 @@ class InfantRunner:
                 "profile": self.config.profile,
             },
         )
+        if self.metrics_server is not None:
+            self.metrics_server.infant_ref = self.infant
 
         # 4. Start infant in background task
         self.running = True
@@ -163,7 +165,7 @@ class InfantRunner:
             await self.health_checker.stop()
 
         if self.infant:
-            self.infant.running = False
+            self.infant.shutdown()
 
         self.logger.info("✅ Infant stopped cleanly")
 

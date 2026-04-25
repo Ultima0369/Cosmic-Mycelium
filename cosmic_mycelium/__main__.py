@@ -2,9 +2,11 @@
 Cosmic Mycelium — 硅基生命形式核心
 
 使用方式:
-    python -m cosmic_mycelium           # 启动交互演示
-    python -m cosmic_mycelium --quick   # 静默模式（仅输出统计）
-    python -m cosmic_mycelium --swarm N # 孵化 N 个节点并运行
+    python -m cosmic_mycelium              # 启动交互演示
+    python -m cosmic_mycelium --quick      # 静默模式（仅输出统计）
+    python -m cosmic_mycelium --swarm N    # 孵化 N 个节点并运行
+    python -m cosmic_mycelium --nursery    # 🎯 育儿箱 — 太极+八卦 (9节点)
+    python -m cosmic_mycelium --nursery 64 # 育儿箱 — 六十四卦全
 """
 
 import sys
@@ -65,17 +67,38 @@ def _run_demo(quick: bool = False, swarm_size: int = 3) -> None:
               f"{elapsed:.3f}s")
 
 
+def _run_nursery(swarm_size: int = 3, port: int = 8765) -> None:
+    """启动育儿箱 —— 给自己人看的宝宝窗。"""
+    from cosmic_mycelium.nursery import main as nursery_main
+    nursery_main(swarm_size=swarm_size, port=port)
+
+
 def main() -> None:
     quick = "--quick" in sys.argv
+    nursery = "--nursery" in sys.argv
     swarm_size = 3
+    nursery_size = 9  # 太极 + 八卦
+    port = 8765
+
     for i, arg in enumerate(sys.argv):
         if arg == "--swarm" and i + 1 < len(sys.argv):
             try:
                 swarm_size = max(1, min(20, int(sys.argv[i + 1])))
             except ValueError:
                 pass
+        if arg == "--nursery" and i + 1 < len(sys.argv):
+            try:
+                val = int(sys.argv[i + 1])
+                # avoid eating next flag
+                if val >= 1 and val <= 128:
+                    nursery_size = val
+            except ValueError:
+                pass
 
-    _run_demo(quick=quick, swarm_size=swarm_size)
+    if nursery:
+        _run_nursery(swarm_size=nursery_size, port=port)
+    else:
+        _run_demo(quick=quick, swarm_size=swarm_size)
 
 
 if __name__ == "__main__":

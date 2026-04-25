@@ -131,6 +131,21 @@ def reset_sympnet_history(sympnet):
     sympnet._integration_error = 0.0
 
 
+@pytest.fixture(autouse=True)
+def reset_global_registries():
+    """Clear class-level registries between tests to prevent state bleed.
+
+    Affected registries:
+      - DecisionTrace._registry — accumulates all traces globally
+      - BiasTraceGraph instances are per-object and don't leak, but
+        DecisionTrace class-level state must be isolated per test.
+    """
+    from cosmic_mycelium.explain.trace import DecisionTrace
+    DecisionTrace.clear()
+    yield
+    DecisionTrace.clear()
+
+
 @pytest.fixture
 def test_data_dir(tmp_path: Path) -> Path:
     """Create a temporary directory for test data."""

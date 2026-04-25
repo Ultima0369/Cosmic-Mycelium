@@ -75,8 +75,8 @@ class TestPacketLatency:
         pkt.destination_id = "broadcast"
         self.network.send(pkt)
 
-        # Both destinations should have latency recorded
-        # (We can't directly inspect histogram observations in Prometheus client
-        # without accessing private _sum_/->_count_ but we trust the observe() call)
-        # Instead we check that no exceptions were raised
-        assert True  # If we got here, histogram observe succeeded
+        # Verify both destinations received the broadcast via inbox
+        # (in-process delivery: inbox is populated synchronously)
+        # After broadcast, destination inboxes should have packets
+        assert len(dest1.inbox) > 0, "Dest1 did not receive broadcast"
+        assert len(dest2.inbox) > 0, "Dest2 did not receive broadcast"

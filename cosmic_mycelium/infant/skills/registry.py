@@ -226,5 +226,6 @@ class SkillRegistry:
         for _, callback in self._event_listeners.get(event, []):
             try:
                 callback(data)
-            except Exception:
-                pass  # 事件回调异常不应影响主流程
+            except Exception as e:
+                logger.exception("Event callback failed for event=%s: %s", event, e)
+                # 事件回调异常不应影响主流程

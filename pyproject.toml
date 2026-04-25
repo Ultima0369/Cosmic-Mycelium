@@ -102,12 +102,22 @@ cluster = [
     "ray==2.46.0",
 ]
 
+# EchoLite edge deployment — absolute minimum for RPi / constrained devices
+# Only numpy is needed (SympNetEngine physics anchor requires it)
+# Everything else (scipy, torch, tf, qiskit, ...) is NOT loaded at runtime
+echolite = [
+    "numpy==2.2.6",
+]
+
 [project.scripts]
+cmctl = "cosmic_mycelium.cli:cmctl_main"
 cosmic-infant = "cosmic_mycelium.scripts.run_infant:main"
 cosmic-cluster = "cosmic_mycelium.scripts.run_cluster:main"
 cosmic-physics = "cosmic_mycelium.scripts.benchmark_physics:main"
 cosmic-stress = "cosmic_mycelium.scripts.stress_test_physics:main"
 cosmic-scale = "cosmic_mycelium.scripts.scale_test:main"
+cosmic-echolite = "cosmic_mycelium.scripts.benchmark_echolite:main"
+cosmic-echolite-verify = "cosmic_mycelium.scripts.verify_echolite_deploy:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["cosmic_mycelium"]

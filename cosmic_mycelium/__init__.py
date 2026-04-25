@@ -34,7 +34,6 @@ from cosmic_mycelium.common.fractal import EchoDetector, EchoPattern, MessageEnv
 from cosmic_mycelium.common.physical_fingerprint import PhysicalFingerprint
 from cosmic_mycelium.infant.fractal_bus import FractalDialogueBus
 from cosmic_mycelium.infant.mini import MiniInfant
-from cosmic_mycelium.infant.main import SiliconInfant
 
 __all__ = [
     "CosmicPacket",
@@ -48,3 +47,12 @@ __all__ = [
     "SiliconInfant",
     "__version__",
 ]
+
+
+def __getattr__(name: str):
+    """Lazy import for SiliconInfant (heavy deps only on first access)."""
+    if name == "SiliconInfant":
+        from cosmic_mycelium.infant.main import SiliconInfant as si
+        return si
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)

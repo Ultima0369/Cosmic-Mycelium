@@ -69,9 +69,17 @@ class FractalDialogueBus:
         echo_detector: 回声探测器
     """
 
-    def __init__(self, name: str = "fractal-bus", verbose: bool = False):
+    def __init__(self, name: str = "fractal-bus", verbose: bool = False,
+                 cache_ttl: float = 2.0):
+        """
+        Args:
+            name: 总线名称
+            verbose: 详细日志
+            cache_ttl: 查询结果缓存有效期（秒），默认 2s
+        """
         self.name = name
         self.verbose = verbose
+        self._cache_ttl = cache_ttl
         self.breath_bus = BreathBus(name)
 
         # 跨层级翻译
@@ -87,6 +95,13 @@ class FractalDialogueBus:
 
         # 回声探测
         self.echo_detector = EchoDetector()
+
+        # 抗体银行：跨节点抗体共享存储（pattern → [antibody_dict, ...]）
+        self._antibody_bank: dict[str, list[dict]] = {}
+        self._max_antibody_bank_size: int = 1000  # 防止无限增长
+
+        # 查询结果缓存: key → (expire_at, value)
+        self._query_cache: dict[str, tuple[float, Any]] = {}
 
         # 链接呼吸总线：BreathSignal → 自动探测回声
         self.breath_bus.register_callback(self._on_breath_signal, "fractal-echo")
@@ -225,7 +240,7 @@ class FractalDialogueBus:
 
     # ── 便捷方法 ─────────────────────────────────────────────────────
 
-    def publish_situation(self, situation_data: dict[str, Any],
+    def publish_situation(self, situation_data: dict[str, object],
                           source_scale: Scale = Scale.INFANT,
                           target_scale: Scale = Scale.MESH,
                           source_id: str = "unknown") -> list[MessageEnvelope]:
@@ -242,7 +257,7 @@ class FractalDialogueBus:
         )
         return self.publish(envelope)
 
-    def broadcast_to_scale(self, scale: Scale, payload: Any,
+    def broadcast_to_scale(self, scale: Scale, payload: dict[str, object],
                            source_id: str = "fractal-bus") -> list[MessageEnvelope]:
         """在同一层级内广播消息（同级无损）。"""
         envelope = MessageEnvelope(
@@ -275,7 +290,7 @@ class FractalDialogueBus:
 
     # ── 常规态势发布 ──────────────────────────────────────────────────
 
-    def publish_situation_update(self, situation_data: dict[str, Any],
+    def publish_situation_update(self, situation_data: dict[str, object],
                                   source_id: str = "unknown") -> list[MessageEnvelope]:
         """
         发布常规态势更新到 MESH（非创伤/死亡事件）。
@@ -351,9 +366,12 @@ class FractalDialogueBus:
         Returns:
             共享路径列表，每项含 path, quality, source
         """
-        all_patterns = self.echo_detector.get_echoes(min_depth=1)
+        ck = self._cache_key("shared_paths", min_quality=min_quality, top_k=top_k)
+        cached = self._get_cached(ck)
+        if cached is not None:
+            return cached
         shared = []
-        for p in all_patterns:
+        for p in self.echo_detector.all_patterns:
             meta = p.metadata or {}
             if meta.get("event_type") == "success_path":
                 quality = meta.get("quality", 0.0)
@@ -365,11 +383,13 @@ class FractalDialogueBus:
                         "echo_count": p.echo_count,
                     })
         shared.sort(key=lambda x: -x["quality"])
-        return shared[:top_k]
+        result = shared[:top_k]
+        self._set_cached(ck, result)
+        return result
 
     # ── SWARM 层级交互 ─────────────────────────────────────────────────
 
-    def publish_to_swarm(self, payload: dict[str, Any],
+    def publish_to_swarm(self, payload: dict[str, object],
                           event_type: str = "situation",
                           source_id: str = "mesh") -> list[MessageEnvelope]:
         """
@@ -413,16 +433,22 @@ class FractalDialogueBus:
             - swarm_coherence: 文明凝聚力
             - warnings: SWARM 层级的活跃警告
         """
+        ck = self._cache_key("swarm_wisdom")
+        cached = self._get_cached(ck)
+        if cached is not None:
+            return cached
         all_patterns = self.echo_detector.get_echoes(min_depth=1)
         swarm_patterns = [p for p in all_patterns if Scale.SWARM in p.scales_observed]
 
         if not swarm_patterns:
-            return {
+            result = {
                 "civilization_health": {"avg_energy": 100, "avg_confidence": 0.7},
                 "epoch": "pre_civilization",
                 "swarm_coherence": 0.0,
                 "warnings": [],
             }
+            self._set_cached(ck, result)
+            return result
 
         # 从 SWARM 模式中提取文明级信息
         traumas = [p for p in swarm_patterns
@@ -430,7 +456,7 @@ class FractalDialogueBus:
         deaths = [p for p in swarm_patterns
                   if p.metadata and p.metadata.get("event_type") == "death"]
 
-        return {
+        result = {
             "civilization_health": {
                 "total_echoes": len(swarm_patterns),
                 "trauma_count": len(traumas),
@@ -443,10 +469,12 @@ class FractalDialogueBus:
                 {"type": "trauma", "count": len(traumas)},
             ],
         }
+        self._set_cached(ck, result)
+        return result
 
     # ── 便捷发布方法 ──────────────────────────────────────────────────
 
-    def publish_trauma(self, situation_data: dict[str, Any],
+    def publish_trauma(self, situation_data: dict[str, object],
                        source_id: str = "unknown") -> list[MessageEnvelope]:
         """
         发布个体创伤事件到 MESH 层级。
@@ -474,9 +502,10 @@ class FractalDialogueBus:
             scale=Scale.MESH,
             metadata={"event_type": "trauma", "source": source_id},
         )
+        self.invalidate_cache()
         return self.publish(envelope)
 
-    def publish_death(self, death_data: dict[str, Any],
+    def publish_death(self, death_data: dict[str, object],
                       source_id: str = "unknown") -> list[MessageEnvelope]:
         """
         发布个体死亡事件到 MESH 层级。
@@ -506,7 +535,175 @@ class FractalDialogueBus:
             scale=Scale.MESH,
             metadata={"event_type": "death", "source": source_id, "cause": cause},
         )
+        self.invalidate_cache()
         return self.publish(envelope)
+
+    # ── 查询缓存 ───────────────────────────────────────────────────────
+
+    def _cache_key(self, method: str, **params: Any) -> str:
+        """生成缓存键。"""
+        parts = [method]
+        for k, v in sorted(params.items()):
+            parts.append(f"{k}={v}")
+        return ":".join(parts)
+
+    def _get_cached(self, key: str) -> object | None:
+        """获取缓存值（未过期）或 None。"""
+        entry = self._query_cache.get(key)
+        if entry is None:
+            return None
+        expire_at, value = entry
+        if __import__("time").time() >= expire_at:
+            del self._query_cache[key]
+            return None
+        return value
+
+    def _set_cached(self, key: str, value: object, ttl: float | None = None) -> None:
+        """写入缓存。"""
+        self._query_cache[key] = (__import__("time").time() + (ttl or self._cache_ttl), value)
+
+    def invalidate_cache(self) -> None:
+        """清空查询缓存（数据变更后调用）。"""
+        self._query_cache.clear()
+
+    # ── 抗体广播（回路二：免疫 → 分形） ──────────────────────────────
+
+    def publish_antibody(
+        self,
+        antibody_data: dict[str, object],
+        source_id: str = "unknown",
+        envelope: object | None = None,
+    ) -> None:
+        """
+        发布个体产生的抗体到 MESH 层级。
+
+        抗体在 MESH 层级累积，供其他节点查询并通过 ImmuneMemory.load_antibody()
+        加载到本地免疫系统。这使得一个节点的创伤经验可以"预警"整个群体。
+
+        支持通过 AntibodyEnvelope 传递协议元数据（跳数、消息类型等）。
+        当 hop_count >= max_migrations 时丢弃该抗体（跳数限制）。
+
+        Args:
+            antibody_data: 抗体数据（含 target_pattern, suppression_strength,
+                          source_node_id, lifespan_cycles 等）
+            source_id: 来源节点 ID
+            envelope: 可选的 AntibodyEnvelope 实例，提供协议元数据
+        """
+        # 从信封或数据中提取跳数
+        if envelope is not None:
+            hop_count = getattr(envelope, "hop_count", 0)
+            source_id = getattr(envelope, "sender_node_id", source_id)
+        else:
+            hop_count = antibody_data.get("migration_count", 0)
+
+        # 跳数限制检查
+        max_hop = antibody_data.get("max_migrations", 5)
+        if hop_count >= max_hop:
+            if self.verbose:
+                print(f"[{self.name}] 🧬 抗体丢弃: 跳数 {hop_count} >= 最大 {max_hop}")
+            return
+
+        pattern = antibody_data.get("target_pattern", "unknown")
+        bank_key = f"antibody_{pattern}"
+
+        # 存入抗体银行
+        if bank_key not in self._antibody_bank:
+            self._antibody_bank[bank_key] = []
+        self._antibody_bank[bank_key].append({
+            **antibody_data,
+            "source_id": source_id,
+            "arrived_at": __import__("time").time(),
+            "hop_count": hop_count,
+        })
+
+        # 抗体银行大小限制：超出时淘汰最旧条目
+        total_entries = sum(len(v) for v in self._antibody_bank.values())
+        if total_entries > self._max_antibody_bank_size:
+            all_entries: list[tuple[str, int, float]] = []
+            for bk, entries in self._antibody_bank.items():
+                for i, e in enumerate(entries):
+                    all_entries.append((bk, i, e.get("arrived_at", 0.0)))
+            all_entries.sort(key=lambda x: x[2])
+            to_evict = all_entries[:total_entries - self._max_antibody_bank_size]
+            evict_map: dict[str, list[int]] = {}
+            for bk, idx, _ in to_evict:
+                evict_map.setdefault(bk, []).append(idx)
+            for bk, indices in evict_map.items():
+                for idx in sorted(indices, reverse=True):
+                    if bk in self._antibody_bank and idx < len(self._antibody_bank[bk]):
+                        del self._antibody_bank[bk][idx]
+                if bk in self._antibody_bank and not self._antibody_bank[bk]:
+                    del self._antibody_bank[bk]
+
+        # 在 MESH 层级记录回声
+        self.echo_detector.record(
+            signature=bank_key,
+            scale=Scale.MESH,
+            metadata={
+                "event_type": "antibody",
+                "source": source_id,
+                "pattern": pattern,
+                "strength": antibody_data.get("suppression_strength", 0.5),
+                "hop_count": hop_count,
+            },
+        )
+
+        if self.verbose:
+            print(f"[{self.name}] 🧬 抗体广播: {pattern} "
+                  f"(强度={antibody_data.get('suppression_strength', 0.5):.2f}, "
+                  f"跳数={hop_count})")
+
+        self.invalidate_cache()
+
+    def get_foreign_antibodies(self, pattern: str = "",
+                               exclude_node: str = "") -> list[dict]:
+        """
+        查询 MESH 层级中来自其他节点的抗体。
+
+        Args:
+            pattern: 可选模式过滤（子串匹配抗体 target_pattern）
+            exclude_node: 排除的节点 ID（通常传入自身 ID，只获取"外来"抗体）
+
+        Returns:
+            匹配的抗体数据列表，按到达时间降序
+        """
+        results: list[dict] = []
+        for bank_key, antibodies in self._antibody_bank.items():
+            for ab in antibodies:
+                ab_pattern = ab.get("target_pattern", "")
+                if pattern and pattern not in ab_pattern and ab_pattern not in pattern:
+                    continue
+                if exclude_node:
+                    ab_source = ab.get("source_node_id") or ab.get("source_id", "")
+                    if ab_source == exclude_node:
+                        continue
+                results.append(ab)
+
+        results.sort(key=lambda x: x.get("arrived_at", 0), reverse=True)
+        return results
+
+    def get_antibody_stats(self) -> dict[str, Any]:
+        """获取抗体银行统计信息。"""
+        cache_key = self._cache_key("antibody_stats")
+        cached = self._get_cached(cache_key)
+        if cached is not None:
+            return cached
+        total = sum(len(v) for v in self._antibody_bank.values())
+        unique_patterns = len(self._antibody_bank)
+        sources: set[str] = set()
+        for antibodies in self._antibody_bank.values():
+            for ab in antibodies:
+                sid = ab.get("source_node_id") or ab.get("source_id", "unknown")
+                if sid:
+                    sources.add(sid)
+        result = {
+            "total_antibodies": total,
+            "unique_patterns": unique_patterns,
+            "unique_sources": len(sources),
+            "patterns": list(self._antibody_bank.keys()),
+        }
+        self._set_cached(cache_key, result)
+        return result
 
     # ── 集体态势聚合 ──────────────────────────────────────────────────
 
@@ -524,6 +721,10 @@ class FractalDialogueBus:
             - collective_tension: 集体紧张度（低能量 + 低置信度的综合指标）
             - energy_distribution: 能量分布摘要
         """
+        cache_key = self._cache_key("collective_situation")
+        cached = self._get_cached(cache_key)
+        if cached is not None:
+            return cached
         all_patterns = self.echo_detector.all_patterns
         mesh_situations = []
         for p in all_patterns:
@@ -532,13 +733,15 @@ class FractalDialogueBus:
                 mesh_situations.append(meta)
 
         if not mesh_situations:
-            return {
+            result = {
                 "node_count": 0,
                 "avg_energy": 100.0,
                 "avg_confidence": 0.7,
                 "collective_tension": 0.0,
                 "energy_distribution": "unknown",
             }
+            self._set_cached(cache_key, result)
+            return result
 
         energies = [s.get("energy", 100.0) for s in mesh_situations]
         confidences = [s.get("confidence", 0.7) for s in mesh_situations]
@@ -550,7 +753,7 @@ class FractalDialogueBus:
         low_conf_ratio = sum(1 for c in confidences if c < 0.4) / len(confidences)
         tension = low_energy_ratio * 0.6 + low_conf_ratio * 0.4
 
-        return {
+        result = {
             "node_count": len(mesh_situations),
             "avg_energy": round(avg_e, 1),
             "avg_confidence": round(avg_c, 3),
@@ -562,6 +765,8 @@ class FractalDialogueBus:
                 else "healthy"
             ),
         }
+        self._set_cached(cache_key, result)
+        return result
 
     # ── 集体智慧查询 ──────────────────────────────────────────────────
 
@@ -581,13 +786,18 @@ class FractalDialogueBus:
         Returns:
             True 如果存在创伤记录
         """
-        # 检查所有模式（不要求跨层级回声 min_depth=2）
+        ck = self._cache_key("has_trauma", prefix=signature_prefix)
+        cached = self._get_cached(ck)
+        if cached is not None:
+            return cached
         all_patterns = self.echo_detector.get_echoes(min_depth=1)
         for p in all_patterns:
             meta = p.metadata or {}
             if meta.get("event_type") == "trauma":
                 if not signature_prefix or p.signature.startswith(signature_prefix):
+                    self._set_cached(ck, True, ttl=5.0)
                     return True
+        self._set_cached(ck, False, ttl=5.0)
         return False
 
     def get_collective_wisdom(self) -> dict[str, Any]:
@@ -599,6 +809,10 @@ class FractalDialogueBus:
             - extinction_warnings: 活跃的灭绝警告
             - hot_signatures: 最频繁的跨层级回声签名
         """
+        ck = self._cache_key("collective_wisdom")
+        cached = self._get_cached(ck)
+        if cached is not None:
+            return cached
         all_patterns = self.echo_detector.get_echoes(min_depth=1)
         trauma_echoes = [e for e in all_patterns if
                          e.metadata and e.metadata.get("event_type") == "trauma"]
@@ -607,7 +821,7 @@ class FractalDialogueBus:
 
         hot = self.get_hot_patterns(top_k=3)
 
-        return {
+        result = {
             "collective_trauma_count": len(trauma_echoes),
             "extinction_warnings": [
                 {"signature": e.signature, "echo_count": e.echo_count}
@@ -618,6 +832,8 @@ class FractalDialogueBus:
                 for e in hot
             ],
         }
+        self._set_cached(ck, result)
+        return result
 
     # ── 回声探测集成 ─────────────────────────────────────────────────
 

@@ -486,7 +486,8 @@ class NodeManager:
                     info["embedding_available"] = (
                         node.infant.get_embedding() is not None
                     )
-                except Exception:
+                except (RuntimeError, AttributeError, TypeError) as e:
+                    logger.debug("Node %s: get_embedding failed: %s", node.node_id, e)
                     info["embedding_available"] = False
             else:
                 info["embedding_available"] = False

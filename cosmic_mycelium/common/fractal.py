@@ -24,7 +24,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Any, Callable
+from typing import Callable, TypedDict, cast
 
 logger = logging.getLogger(__name__)
 
@@ -84,14 +84,14 @@ class MessageEnvelope:
 
     source_scale: Scale
     target_scale: Scale
-    payload: Any
+    payload: dict[str, object]
     fidelity: float = 1.0
     compression_ratio: float = 0.0
     trace_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     parent_id: str | None = None
     timestamp: float = field(default_factory=time.time)
     source_id: str = "unknown"
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, object] = field(default_factory=dict)
 
     @property
     def is_lossless(self) -> bool:
@@ -108,7 +108,7 @@ class MessageEnvelope:
         """是否向下展开。"""
         return self.target_scale < self.source_scale
 
-    def with_payload(self, new_payload: Any, fidelity: float,
+    def with_payload(self, new_payload: dict[str, object], fidelity: float,
                      compression_ratio: float) -> MessageEnvelope:
         """创建翻译后的新信封（继承 trace_id 链）。"""
         return MessageEnvelope(
@@ -137,8 +137,8 @@ class MessageEnvelope:
 # 翻译表 (TranslationTable)
 # ====================================================================
 
-# 翻译函数签名: (payload: Any, metadata: dict) -> (new_payload, fidelity, compression_ratio)
-TranslatorFn = Callable[[Any, dict[str, Any]], tuple[Any, float, float]]
+# 翻译函数签名: (payload, metadata) -> (new_payload, fidelity, compression_ratio)
+TranslatorFn = Callable[[dict[str, object], dict[str, object]], tuple[dict[str, object], float, float]]
 
 
 @dataclass
@@ -149,6 +149,13 @@ class TranslationEntry:
     fn: TranslatorFn
     description: str = ""
     version: int = 1
+
+
+class TranslationTableStatus(TypedDict):
+    """Typed protocol for TranslationTable.get_status()."""
+    registered_translators: int
+    total_translations: int
+    entries: list[str]
 
 
 class TranslationTable:
@@ -202,7 +209,7 @@ class TranslationTable:
         )
 
     def translate(self, envelope: MessageEnvelope,
-                  metadata: dict[str, Any] | None = None) -> MessageEnvelope | None:
+                  metadata: dict[str, object] | None = None) -> MessageEnvelope | None:
         """
         将消息翻译到目标层级。
 
@@ -258,7 +265,7 @@ class TranslationTable:
     def registered_count(self) -> int:
         return sum(len(v) for v in self._entries.values())
 
-    def get_status(self) -> dict[str, Any]:
+    def get_status(self) -> "TranslationTableStatus":
         all_entries = [e for es in self._entries.values() for e in es]
         return {
             "registered_translators": self.registered_count,
@@ -274,8 +281,8 @@ class TranslationTable:
 # 预置翻译函数
 # ====================================================================
 
-def _trauma_infant_to_mesh(payload: Any, metadata: dict[str, Any]
-                           ) -> tuple[dict[str, Any], float, float]:
+def _trauma_infant_to_mesh(payload: dict[str, object], metadata: dict[str, object]
+                           ) -> tuple[dict[str, object], float, float]:
     """
     INFANT → MESH：个体创伤 → 群体危险签名。
 
@@ -286,22 +293,24 @@ def _trauma_infant_to_mesh(payload: Any, metadata: dict[str, Any]
     compression = 0.85  # 高压缩比
 
     if isinstance(payload, dict):
+        surprise = cast(float, payload.get("surprise", 0))
+        resonance = cast(float, payload.get("resonance_intensity", 0))
         return {
             "danger_signature": {
                 "energy_level": payload.get("energy", 100),
-                "confidence_crash": payload.get("confidence_drop", 0) > 0.2,
-                "surprise_spike": payload.get("surprise", 0) > 0.01,
+                "confidence_crash": cast(float, payload.get("confidence_drop", 0)) > 0.2,
+                "surprise_spike": surprise > 0.01,
                 "intensity": payload.get("resonance_intensity", 0.0),
             },
-            "trauma_type": "energy_shock" if payload.get("surprise", 0) > 0.01 else "unknown",
+            "trauma_type": "energy_shock" if surprise > 0.01 else "unknown",
             "source_count": 1,
-            "severity": min(1.0, payload.get("resonance_intensity", 0) * 1.2),
+            "severity": min(1.0, resonance * 1.2),
         }, fidelity, compression
     return {"danger_signature": {}, "trauma_type": "unknown", "severity": 0}, fidelity, compression
 
 
-def _death_infant_to_mesh(payload: Any, metadata: dict[str, Any]
-                          ) -> tuple[dict[str, Any], float, float]:
+def _death_infant_to_mesh(payload: dict[str, object], metadata: dict[str, object]
+                          ) -> tuple[dict[str, object], float, float]:
     """
     INFANT → MESH：个体死亡 → 群体灭绝记录。
 
@@ -312,17 +321,21 @@ def _death_infant_to_mesh(payload: Any, metadata: dict[str, Any]
     compression = 0.8
 
     if isinstance(payload, dict):
+        synergy = cast(float, payload.get("synergy_score", 0.5))
+        lifespan = cast(int, payload.get("lifespan_cycles", 0))
         cause = payload.get("cause", "unknown")
+        if not isinstance(cause, str):
+            cause = "unknown"
         return {
             "extinction_event": {
                 "cause": cause,
-                "lifespan_cycles": payload.get("lifespan_cycles", 0),
-                "final_synergy": payload.get("synergy_score", 0.5),
-                "critical": payload.get("hidden_reserve", 20) <= 0,
+                "lifespan_cycles": lifespan,
+                "final_synergy": synergy,
+                "critical": cast(int, payload.get("hidden_reserve", 20)) <= 0,
             },
             "warning": (
-                "low_synergy" if payload.get("synergy_score", 0.5) < 0.3
-                else "old_age" if payload.get("lifespan_cycles", 0) > 8000
+                "low_synergy" if synergy < 0.3
+                else "old_age" if lifespan > 8000
                 else "unknown"
             ),
             "source_count": 1,
@@ -330,8 +343,8 @@ def _death_infant_to_mesh(payload: Any, metadata: dict[str, Any]
     return {"extinction_event": {"cause": "unknown"}, "warning": "unknown"}, fidelity, compression
 
 
-def _situation_infant_to_mesh(payload: Any, metadata: dict[str, Any]
-                              ) -> tuple[dict[str, Any], float, float]:
+def _situation_infant_to_mesh(payload: dict[str, object], metadata: dict[str, object]
+                              ) -> tuple[dict[str, object], float, float]:
     """
     INFANT → MESH：个体态势 → 统计特征。
 
@@ -342,16 +355,18 @@ def _situation_infant_to_mesh(payload: Any, metadata: dict[str, Any]
     compression = 0.7  # 压缩比 70%
 
     if isinstance(payload, dict):
+        energy = cast(float, payload.get("energy", 100))
+        confidence = cast(float, payload.get("confidence", 0.7))
+        surprise = cast(float, payload.get("surprise", 0.0))
         return {
             "energy_profile": {
-                "current": payload.get("energy", 100),
-                "critical": payload.get("energy", 100) < 20,
+                "current": energy,
+                "critical": energy < 20,
             },
             "stability": {
-                "confidence": payload.get("confidence", 0.7),
-                "surprise": payload.get("surprise", 0.0),
-                "is_stable": payload.get("confidence", 0.7) >= 0.7
-                           and payload.get("surprise", 0.0) < 0.3,
+                "confidence": confidence,
+                "surprise": surprise,
+                "is_stable": confidence >= 0.7 and surprise < 0.3,
             },
             "trauma_flag": payload.get("trauma_flag", False),
             "resonance_intensity": payload.get("resonance_intensity", 0.0),
@@ -360,8 +375,8 @@ def _situation_infant_to_mesh(payload: Any, metadata: dict[str, Any]
     return {"energy": 100, "stability": "unknown"}, 0.5, 0.8
 
 
-def _situation_mesh_to_infant(payload: Any, metadata: dict[str, Any]
-                              ) -> tuple[dict[str, Any], float, float]:
+def _situation_mesh_to_infant(payload: dict[str, object], metadata: dict[str, object]
+                              ) -> tuple[dict[str, object], float, float]:
     """
     MESH → INFANT：群体统计 → 个体启发。
 
@@ -372,21 +387,23 @@ def _situation_mesh_to_infant(payload: Any, metadata: dict[str, Any]
     compression = -0.5  # 负压缩 = 展开（信息量增加）
 
     if isinstance(payload, dict):
+        stability = cast(dict[str, object], payload.get("stability", {}))
+        trauma_flag = bool(payload.get("trauma_flag", False))
         return {
-            "peer_confidence": payload.get("stability", {}).get("confidence", 0.7),
-            "collective_surprise": payload.get("stability", {}).get("surprise", 0.0),
-            "trauma_warning": payload.get("trauma_flag", False),
+            "peer_confidence": stability.get("confidence", 0.7),
+            "collective_surprise": stability.get("surprise", 0.0),
+            "trauma_warning": trauma_flag,
             "recommendation": (
-                "caution" if payload.get("trauma_flag", False)
-                else "stable" if payload.get("stability", {}).get("is_stable", True)
+                "caution" if trauma_flag
+                else "stable" if bool(stability.get("is_stable", True))
                 else "explore"
             ),
         }, fidelity, compression
     return {"recommendation": "explore"}, 0.4, -0.3
 
 
-def _situation_mesh_to_swarm(payload: Any, metadata: dict[str, Any]
-                              ) -> tuple[dict[str, Any], float, float]:
+def _situation_mesh_to_swarm(payload: dict[str, object], metadata: dict[str, object]
+                              ) -> tuple[dict[str, object], float, float]:
     """
     MESH → SWARM：群体统计 → 文明健康摘要。
 
@@ -397,9 +414,11 @@ def _situation_mesh_to_swarm(payload: Any, metadata: dict[str, Any]
     compression = 0.9  # 高压缩比
 
     if isinstance(payload, dict):
-        energy = payload.get("energy_profile", {}).get("current", 100)
-        confidence = payload.get("stability", {}).get("confidence", 0.7)
-        trauma = payload.get("trauma_flag", False)
+        energy_profile = cast(dict[str, object], payload.get("energy_profile", {}))
+        stability = cast(dict[str, object], payload.get("stability", {}))
+        energy = cast(float, energy_profile.get("current", 100))
+        confidence = cast(float, stability.get("confidence", 0.7))
+        trauma = bool(payload.get("trauma_flag", False))
         return {
             "civilization_health": {
                 "avg_energy": energy,
@@ -417,8 +436,8 @@ def _situation_mesh_to_swarm(payload: Any, metadata: dict[str, Any]
     }, fidelity, compression
 
 
-def _trauma_mesh_to_swarm(payload: Any, metadata: dict[str, Any]
-                           ) -> tuple[dict[str, Any], float, float]:
+def _trauma_mesh_to_swarm(payload: dict[str, object], metadata: dict[str, object]
+                           ) -> tuple[dict[str, object], float, float]:
     """
     MESH → SWARM：集体创伤 → 文明伤痕记录。
 
@@ -429,8 +448,10 @@ def _trauma_mesh_to_swarm(payload: Any, metadata: dict[str, Any]
     compression = 0.95  # 极高压缩
 
     if isinstance(payload, dict):
-        severity = payload.get("severity", 0.0)
+        severity = cast(float, payload.get("severity", 0.0))
         trauma_type = payload.get("trauma_type", "unknown")
+        if not isinstance(trauma_type, str):
+            trauma_type = "unknown"
         return {
             "historical_wound": {
                 "type": trauma_type,
@@ -442,8 +463,8 @@ def _trauma_mesh_to_swarm(payload: Any, metadata: dict[str, Any]
     return {"scar": "unknown"}, fidelity, compression
 
 
-def _death_mesh_to_swarm(payload: Any, metadata: dict[str, Any]
-                          ) -> tuple[dict[str, Any], float, float]:
+def _death_mesh_to_swarm(payload: dict[str, object], metadata: dict[str, object]
+                          ) -> tuple[dict[str, object], float, float]:
     """
     MESH → SWARM：灭绝记录 → 文明大灭绝年表。
 
@@ -454,7 +475,7 @@ def _death_mesh_to_swarm(payload: Any, metadata: dict[str, Any]
     compression = 0.92
 
     if isinstance(payload, dict):
-        event = payload.get("extinction_event", {})
+        event = cast(dict[str, object], payload.get("extinction_event", {}))
         return {
             "mass_extinction": {
                 "primary_cause": event.get("cause", "unknown"),
@@ -466,8 +487,8 @@ def _death_mesh_to_swarm(payload: Any, metadata: dict[str, Any]
     return {"era": "unknown"}, fidelity, compression
 
 
-def _swarm_to_mesh(payload: Any, metadata: dict[str, Any]
-                    ) -> tuple[dict[str, Any], float, float]:
+def _swarm_to_mesh(payload: dict[str, object], metadata: dict[str, object]
+                    ) -> tuple[dict[str, object], float, float]:
     """
     SWARM → MESH：文明智慧 → 群体启示。
 
@@ -478,13 +499,16 @@ def _swarm_to_mesh(payload: Any, metadata: dict[str, Any]
     compression = -0.6  # 展开
 
     if isinstance(payload, dict):
-        health = payload.get("civilization_health", {})
+        health = cast(dict[str, object], payload.get("civilization_health", {}))
         epoch = payload.get("epoch", "unknown")
+        if not isinstance(epoch, str):
+            epoch = "unknown"
+        avg_confidence = cast(float, health.get("avg_confidence", 0.7))
         return {
             "civilization_guidance": {
                 "epoch": epoch,
-                "caution_advised": health.get("trauma_present", False),
-                "confidence_floor": max(0.2, health.get("avg_confidence", 0.7) - 0.1),
+                "caution_advised": bool(health.get("trauma_present", False)),
+                "confidence_floor": max(0.2, avg_confidence - 0.1),
                 "coherence_bias": payload.get("swarm_coherence", 0.5),
             },
         }, fidelity, compression
@@ -519,7 +543,7 @@ class EchoPattern:
     first_seen: float = field(default_factory=time.time)
     last_seen: float = field(default_factory=time.time)
     echo_count: int = 1
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, object] = field(default_factory=dict)
 
     @property
     def is_universal(self) -> bool:
@@ -530,6 +554,14 @@ class EchoPattern:
     def depth(self) -> int:
         """跨层级深度。"""
         return len(set(self.scales_observed))
+
+
+class EchoDetectorStatus(TypedDict):
+    """Typed protocol for EchoDetector.get_status()."""
+    total_patterns: int
+    total_echoes: int
+    cross_scale_echoes: int
+    universal_patterns: int
 
 
 class EchoDetector:
@@ -546,12 +578,13 @@ class EchoDetector:
         echoes = detector.get_echoes(min_depth=2)  # 跨层级回声
     """
 
-    def __init__(self):
+    def __init__(self, max_patterns: int = 10000):
         self._patterns: dict[str, EchoPattern] = {}
         self._total_echoes: int = 0
+        self._max_patterns: int = max_patterns
 
     def record(self, signature: str, scale: Scale,
-               metadata: dict[str, Any] | None = None) -> EchoPattern:
+               metadata: dict[str, object] | None = None) -> EchoPattern:
         """
         在指定层级记录一个模式出现。
 
@@ -590,6 +623,12 @@ class EchoDetector:
             )
             self._patterns[signature] = pattern
 
+            # Evict oldest patterns when over capacity
+            if len(self._patterns) > self._max_patterns:
+                oldest = sorted(self._patterns.items(), key=lambda x: x[1].last_seen)
+                for sig, _ in oldest[:len(self._patterns) - self._max_patterns]:
+                    del self._patterns[sig]
+
         return pattern
 
     def get_echoes(self, min_depth: int = 2) -> list[EchoPattern]:
@@ -618,7 +657,7 @@ class EchoDetector:
         """所有已记录的模式（只读视图）。"""
         return list(self._patterns.values())
 
-    def get_status(self) -> dict[str, Any]:
+    def get_status(self) -> "EchoDetectorStatus":
         return {
             "total_patterns": self.total_patterns,
             "total_echoes": self._total_echoes,

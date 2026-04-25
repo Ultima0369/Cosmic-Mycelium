@@ -181,6 +181,37 @@ if PROMETHEUS_AVAILABLE:
         "research_errors_total", "Research cycle exceptions", ["infant_id"]
     )
 
+    # Breath cycle duration histogram
+    BREATH_CYCLE_DURATION = Histogram(
+        "breath_cycle_duration_seconds",
+        "Duration of each breath cycle phase",
+        ["infant_id", "phase"],
+        buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0),
+    )
+
+    # MiniInfant core metrics
+    MINI_POSITION = Gauge(
+        "mini_position", "MiniInfant position (q)", ["infant_id"]
+    )
+    MINI_MOMENTUM = Gauge(
+        "mini_momentum", "MiniInfant momentum (p)", ["infant_id"]
+    )
+    MINI_CONFIDENCE = Gauge(
+        "mini_confidence", "MiniInfant confidence", ["infant_id"]
+    )
+    MINI_SURPRISE = Gauge(
+        "mini_surprise", "MiniInfant surprise", ["infant_id"]
+    )
+    MINI_TRAUMA_COUNT = Counter(
+        "mini_trauma_total", "Trauma events", ["infant_id"]
+    )
+    MINI_CYCLE_COUNT = Counter(
+        "mini_cycles_total", "Breath cycles completed", ["infant_id"]
+    )
+    MINI_PATH_COUNT = Gauge(
+        "mini_path_count", "Myelinated path count", ["infant_id"]
+    )
+
 
 @dataclass
 class MetricsServer:
@@ -190,6 +221,7 @@ class MetricsServer:
     """
 
     port: int = 8000
+    infant_ref: Any = None  # Optional MiniInfant/SiliconInfant reference for health reporting
     _runner: web.AppRunner | None = None
     _site: web.TCPSite | None = None
 
@@ -236,12 +268,26 @@ class MetricsServer:
         )
 
     async def _handle_health(self, request: web.Request) -> web.Response:
-        """Handle /health request — overall health."""
+        """Handle /health request — overall health with optional infant status."""
+        if self.infant_ref is not None:
+            try:
+                status = self.infant_ref.status if hasattr(self.infant_ref, "status") else "unknown"
+                energy = self.infant_ref.hic.energy if hasattr(self.infant_ref, "hic") else 0
+                cycles = getattr(self.infant_ref, "_cycle_count", 0)
+                return web.json_response({
+                    "status": status,
+                    "energy": energy,
+                    "cycles": cycles,
+                    "service": "cosmic-infant",
+                })
+            except Exception:
+                pass
         return web.json_response({"status": "ok", "service": "cosmic-infant"})
 
     async def _handle_health_ready(self, request: web.Request) -> web.Response:
-        """Readiness probe — checks cluster connectivity."""
-        return web.json_response({"status": "ready"})
+        """Readiness probe — checks infant initialized."""
+        ready = self.infant_ref is not None
+        return web.json_response({"status": "ready" if ready else "not_ready"})
 
     async def _handle_health_live(self, request: web.Request) -> web.Response:
         """Liveness probe — always ok if process running."""
@@ -294,6 +340,28 @@ class MetricsCollector:
         # Knowledge Store
         if hasattr(infant_obj, "knowledge_store") and infant_obj.knowledge_store is not None:
             MetricsCollector.collect_knowledge_store_metrics(infant_id, infant_obj.knowledge_store)
+
+    @staticmethod
+    def collect_mini_metrics(infant_id: str, infant: Any) -> None:
+        """Pull metrics from a MiniInfant instance."""
+        if not PROMETHEUS_AVAILABLE:
+            return
+
+        MINI_POSITION.labels(infant_id=infant_id).set(getattr(infant, "position", 0.0))
+        MINI_MOMENTUM.labels(infant_id=infant_id).set(getattr(infant, "momentum", 0.0))
+        MINI_CONFIDENCE.labels(infant_id=infant_id).set(getattr(infant, "confidence", 0.0))
+        MINI_SURPRISE.labels(infant_id=infant_id).set(getattr(infant, "surprise", 0.0))
+        MINI_CYCLE_COUNT.labels(infant_id=infant_id).inc(getattr(infant, "_cycle_count", 0))
+
+        if hasattr(infant, "memory") and hasattr(infant.memory, "path_strength"):
+            MINI_PATH_COUNT.labels(infant_id=infant_id).set(len(infant.memory.path_strength))
+
+    @staticmethod
+    def record_breath_cycle_duration(infant_id: str, phase: str, duration: float) -> None:
+        """Record breath cycle phase duration."""
+        if not PROMETHEUS_AVAILABLE:
+            return
+        BREATH_CYCLE_DURATION.labels(infant_id=infant_id, phase=phase).observe(duration)
 
     @staticmethod
     def collect_node_manager_metrics(nm: NodeManager, nm_id: str = "default") -> None:

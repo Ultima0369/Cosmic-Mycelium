@@ -110,8 +110,9 @@ class KnowledgeStore:
                     data = json.load(fp)
                     entry = KnowledgeEntry.from_dict(data)
                     self.entries[entry.entry_id] = entry
-            except Exception:
-                pass  # 忽略损坏文件
+            except (json.JSONDecodeError, OSError, KeyError):
+                logger.debug("Skipping corrupted knowledge file: %s", f.name)
+                continue
 
         # Load vector index if exists
         vector_index_path = self.storage_path / "vector_index"
@@ -125,8 +126,9 @@ class KnowledgeStore:
                 if entry.embedding is not None:
                     try:
                         self.vector_index.add(entry.entry_id, entry.embedding)
-                    except Exception:
-                        pass  # skip dimension mismatches
+                    except (ValueError, TypeError) as e:
+                        logger.debug("Skipping vector entry %s: %s", entry.entry_id, e)
+                        continue
 
     def _save_one(self, entry: KnowledgeEntry) -> None:
         filepath = self.storage_path / f"{entry.entry_id}.json"

@@ -219,7 +219,7 @@ class TestInfantRunnerShutdown:
 
         runner.metrics_server.stop.assert_awaited_once()
         runner.health_checker.stop.assert_awaited_once()
-        assert runner.infant.running is False
+        runner.infant.shutdown.assert_called_once()
         assert runner.running is False
 
     @pytest.mark.asyncio

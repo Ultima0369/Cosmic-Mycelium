@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from hypothesis import given, settings, HealthCheck
+from hypothesis import strategies as st
+from hypothesis.extra.numpy import arrays
 
 from cosmic_mycelium.infant.engines.engine_sympnet import SympNetEngine
 
@@ -209,6 +212,28 @@ class TestSympNetHealth:
 
 class TestSympNetPhysicalAnchor:
     """The ultimate test: the physical anchor must hold."""
+
+    @given(
+        q=st.floats(min_value=-5.0, max_value=5.0),
+        p=st.floats(min_value=-5.0, max_value=5.0),
+        steps=st.integers(min_value=100, max_value=5000),
+    )
+    @settings(max_examples=50, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
+    def test_energy_conservation_hypothesis(
+        self, sympnet_config, physics_tolerance, q, p, steps
+    ):
+        """PROPERTY-BASED: Energy conserved for ALL initial conditions."""
+        engine = SympNetEngine(**sympnet_config)
+        dt = 0.01
+        initial_energy = engine.compute_energy(q, p)
+        for _ in range(steps):
+            q, p = engine.step(q, p, dt)
+        final_energy = engine.compute_energy(q, p)
+        drift = abs(final_energy - initial_energy) / max(initial_energy, 1e-9)
+        assert drift < physics_tolerance, (
+            f"Energy drift {drift:.6%} exceeds threshold {physics_tolerance:.6%} "
+            f"for initial (q={q:.4f}, p={p:.4f}, steps={steps})"
+        )
 
     @pytest.mark.physics
     def test_sacred_threshold_energy_drift(self, sympnet_config, physics_tolerance):

@@ -103,8 +103,10 @@ class TestResearchSkillParallelExecution:
             # Each cycle research should execute (may skip due to cooldown, but no crashes)
             # Just verify no exceptions raised
 
-        # KnowledgeStore should be intact (no corruption)
-        assert len(knowledge.entries) >= 0  # may have entries depending on execution
+        # KnowledgeStore should be intact (no corruption from concurrent access)
+        total = len(knowledge.entries)
+        assert total >= 0
+        assert isinstance(total, int)
 
     def test_research_with_high_energy_budget_concurrent(self):
         """Research executes reliably even with tight energy budget."""

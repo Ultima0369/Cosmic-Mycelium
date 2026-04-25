@@ -23,13 +23,14 @@ from cosmic_mycelium.infant.engines.engine_sympnet import SympNetEngine
 from cosmic_mycelium.infant.fossil import FossilLayer, FossilRecord
 from cosmic_mycelium.infant.fractal_bus import FractalDialogueBus
 from cosmic_mycelium.infant.hic import BreathState, HIC
-from cosmic_mycelium.infant.main import SiliconInfant
+from cosmic_mycelium.infant.learning import ContinualLearner
 from cosmic_mycelium.infant.mini import MiniInfant
 
 __all__ = [
     "BreathBus",
     "BreathSignal",
     "BreathState",
+    "ContinualLearner",
     "FossilLayer",
     "FossilRecord",
     "FractalDialogueBus",
@@ -39,3 +40,12 @@ __all__ = [
     "SlimeExplorer",
     "SympNetEngine",
 ]
+
+
+def __getattr__(name: str):
+    """Lazy import: SiliconInfant 仅在首次访问时加载。"""
+    if name == "SiliconInfant":
+        from cosmic_mycelium.infant.main import SiliconInfant as si
+        return si
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)

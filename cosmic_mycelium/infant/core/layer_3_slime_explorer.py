@@ -6,12 +6,15 @@ Mimics slime mold's parallel "discharge" and convergence with learned heuristics
 
 from __future__ import annotations
 
+import logging
 import random
 import time
 from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -66,6 +69,7 @@ class SlimeExplorer:
         self._flashback_context: dict | None = None
         # Fractal Dialogue integration (collective wisdom)
         self.fractal_bus = fractal_bus
+        self.max_success_history: int = 1000
 
     def explore(self, context: dict, goal_hint: str | None = None) -> list[Spore]:
         """
@@ -92,8 +96,9 @@ class SlimeExplorer:
         if self.fractal_bus is not None:
             try:
                 collective_unease = self.fractal_bus.has_collective_trauma()
-            except Exception:
-                pass
+            except (RuntimeError, ConnectionError, AttributeError) as e:
+                logger.warning("SlimeExplorer: has_collective_trauma failed: %s", e)
+                collective_unease = False
 
         if energy is not None and confidence is not None:
             if energy > 50.0 and confidence < 0.5:
@@ -116,8 +121,8 @@ class SlimeExplorer:
                     # 给共享路径增加信息素，让后续探索偏向它
                     current = self.pheromone_map.get(shared_path, 0.0)
                     self.pheromone_map[shared_path] = max(current, entry["quality"] * 0.5)
-            except Exception:
-                pass
+            except (RuntimeError, ConnectionError, TypeError) as e:
+                logger.warning("SlimeExplorer: get_shared_paths failed: %s", e)
 
         for i in range(num_spores):
             spore_id = f"spore_{self._spore_counter:06d}_{i}"
@@ -201,8 +206,8 @@ class SlimeExplorer:
                 if self.fractal_bus.has_collective_trauma():
                     # 集体不安：降低所有探索路径的评分（"氛围不对"）
                     collective_penalty = 0.2
-            except Exception:
-                pass
+            except (RuntimeError, ConnectionError, AttributeError) as e:
+                logger.warning("SlimeExplorer: has_collective_trauma failed in _evaluate_path: %s", e)
 
         total_penalty = trauma_penalty * 0.5 + collective_penalty
         return float(pheromone * 0.7 + goal_bonus * 0.3 - total_penalty * 0.3)
@@ -245,6 +250,10 @@ class SlimeExplorer:
             }
         )
 
+        # 裁剪成功历史，防止无限增长
+        if len(self.success_history) > self.max_success_history:
+            self.success_history = self.success_history[-self.max_success_history:]
+
         # ── Trauma repression accumulation ──
         if self.trauma_memory is not None and len(self.trauma_memory.trauma_paths) > 0:
             chosen_path_str = "->".join(best.path)
@@ -270,8 +279,8 @@ class SlimeExplorer:
                     quality=best.quality,
                     source_id=getattr(self, "_source_id", "explorer"),
                 )
-            except Exception:
-                pass
+            except (RuntimeError, ConnectionError, AttributeError) as e:
+                logger.warning("SlimeExplorer: publish_path_success failed: %s", e)
 
         return best
 

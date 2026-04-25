@@ -335,7 +335,7 @@ class SkillLifecycleManager:
             try:
                 usage = skill.get_resource_usage()
                 cost = float(usage.get("energy_cost", 0.0))
-            except Exception:
+            except (TypeError, KeyError, AttributeError):
                 cost = 0.0
 
             if not self._reserve_energy(cost):
@@ -380,7 +380,7 @@ class SkillLifecycleManager:
             try:
                 usage = skill.get_resource_usage()
                 cost = float(usage.get("energy_cost", 0.0))
-            except Exception:
+            except (TypeError, KeyError, AttributeError):
                 cost = 0.0
 
             if not self._reserve_energy(cost):
@@ -485,7 +485,7 @@ class SkillLifecycleManager:
             try:
                 usage = skill.get_resource_usage()
                 cost = float(usage.get("energy_cost", 0.0))
-            except Exception:
+            except (TypeError, KeyError, AttributeError):
                 cost = 0.0
 
             if not self._reserve_energy(cost):
@@ -630,7 +630,7 @@ class SkillLifecycleManager:
             try:
                 usage = skill.get_resource_usage()
                 record.energy_cost = usage.get("energy_cost", 0.0)
-            except Exception:
+            except (TypeError, KeyError, AttributeError):
                 record.energy_cost = 0.0
         except Exception as e:
             record.success = False
@@ -682,7 +682,7 @@ class SkillLifecycleManager:
             try:
                 usage = skill.get_resource_usage()
                 cost = float(usage.get("energy_cost", 0.0))
-            except Exception:
+            except (TypeError, KeyError, AttributeError):
                 cost = 0.0
             if not self._reserve_energy(cost):
                 costs.append(None)
@@ -783,7 +783,7 @@ class SkillLifecycleManager:
                 try:
                     usage = skill.get_resource_usage()
                     record.energy_cost = usage.get("energy_cost", 0.0)
-                except Exception:
+                except (TypeError, KeyError, AttributeError):
                     record.energy_cost = 0.0
         return record
 

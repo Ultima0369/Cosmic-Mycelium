@@ -109,6 +109,7 @@ class SymbiosisInterface:
         self.inbox: list[dict] = []
         self.outbox: list[dict] = []
         self.history: list[str] = []
+        self._max_history: int = 5000
         self.pending_requests: list[Interaction] = []
         self.active_negotiations: dict[str, Negotiation] = {}
         self.trust_decay_enabled = trust_decay_enabled
@@ -429,6 +430,8 @@ class SymbiosisInterface:
 
             else:
                 self.history.append(f"Ignored unknown message type: {msg_type}")
+        if len(self.history) > self._max_history:
+            self.history = self.history[-self._max_history:]
 
         self.inbox.clear()
 
@@ -460,6 +463,8 @@ class SymbiosisInterface:
         partner.status = PartnershipStatus.SEVERED
         partner.trust = 0.0
         self.history.append(f"Severed partnership with {partner_id}: {reason}")
+        if len(self.history) > self._max_history:
+            self.history = self.history[-self._max_history:]
         return True
 
     def explain_state(self) -> str:

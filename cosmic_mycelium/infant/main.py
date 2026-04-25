@@ -1459,3 +1459,14 @@ class SiliconInfant:
             raise ValueError(f"Save file missing required keys: {missing}")
         self.from_dict(data)
         self._log(f"State loaded from {path}", "INFO")
+
+    def shutdown(self) -> None:
+        """Clean up resources: thread pools, sensors, connections."""
+        self.running = False
+        if hasattr(self, "skill_lifecycle") and self.skill_lifecycle is not None:
+            self.skill_lifecycle.shutdown()
+        if hasattr(self, "knowledge_store") and self.knowledge_store is not None:
+            try:
+                self.knowledge_store.persist()
+            except Exception:
+                pass

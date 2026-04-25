@@ -47,11 +47,14 @@ class MyceliumNetwork:
     - Resonance learning coordination
     """
 
-    def __init__(self, name: str = "mycelium"):
+    def __init__(self, name: str = "mycelium",
+     resonance_history_max: int = 10000,
+     packet_queue_max: int = 5000):
         self.name = name
         self.nodes: dict[str, NodeInfo] = {}
-        self._packet_queue: deque[CosmicPacket] = deque()
+        self._packet_queue: deque[CosmicPacket] = deque(maxlen=packet_queue_max)
         self._resonance_history: list[dict] = []
+        self._max_resonance_history: int = resonance_history_max
         self._running = False
         self._metrics_collector = MetricsCollector()
 
@@ -216,6 +219,8 @@ class MyceliumNetwork:
                 "similarity": similarity,
             }
         )
+        if len(self._resonance_history) > self._max_resonance_history:
+            self._resonance_history = self._resonance_history[-self._max_resonance_history:]
 
     def get_resonance_network(self, threshold: float = 0.7) -> list[dict]:
         """Return all node pairs with resonance above threshold."""

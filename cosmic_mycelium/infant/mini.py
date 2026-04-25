@@ -29,7 +29,7 @@ from typing import Any, ClassVar
 
 from cosmic_mycelium.common.fractal import Scale
 from cosmic_mycelium.common.situation import Situation
-from cosmic_mycelium.infant.breath_bus import BreathAware
+from cosmic_mycelium.infant.breath_bus import BreathAware, BreathBus, BreathEvent, EventPriority
 from cosmic_mycelium.infant.engines.engine_sympnet import SympNetEngine
 from cosmic_mycelium.infant.fossil import FossilLayer, FossilRecord
 from cosmic_mycelium.infant.fractal_bus import FractalDialogueBus
@@ -174,7 +174,16 @@ class MyelinationMemory:
     # ── 创伤回路 ─────────────────────────────────────────────────────
 
     def mark_trauma(self, path_key: str, context: str = "") -> None:
-        """标记一条路径为创伤。"""
+        """
+        标记路径为创伤。
+
+        创伤路径强度被强制提升（>=5.0），使个体对此路径高度敏感。
+        此后压抑积累到 5 次以上会触发闪回。
+
+        Args:
+            path_key: 路径标识
+            context: 创伤上下文描述
+        """
         if path_key not in self.trauma_paths:
             self.trauma_paths[path_key] = {
                 "timestamp": __import__("time").time(),
@@ -296,6 +305,11 @@ class MiniInfant:
         # 零件 4: 髓鞘化记忆
         self.memory = MyelinationMemory()
 
+        # 零件 5: 持续学习引擎（保护重要路径不被遗忘）
+        from cosmic_mycelium.infant.learning import ContinualLearner
+        self._continual_learner = ContinualLearner(protection_strength=0.7)
+        self._continual_learner.attach(self.memory)
+
         # 化石层（跨死亡周期的经验存储）
         self._fossil_layer: FossilLayer = FossilLayer()
         self._extinction_counter: int = 0  # 灭绝事件计数器
@@ -320,6 +334,13 @@ class MiniInfant:
         self._prev_confidence = 0.7
         self.situation = self._build_situation()
 
+        # 回路一：感知-认知-行动总线（SNN 驱动的认知事件覆盖呼吸节律）
+        self._breath_bus: BreathBus | None = None
+
+        # LLM Token 预算跟踪（预埋，大模型接入后自动记录）
+        from cosmic_mycelium.infant.budget import TokenBudget
+        self._token_budget = TokenBudget(daily_limit=1_000_000)
+
         # 统计与生命周期
         self._cycle_count = 0
         self._start_time = time.monotonic()
@@ -330,6 +351,18 @@ class MiniInfant:
         self._max_age: int = 10000                  # 最大寿命（周期数）
         self._is_dead: bool = False                 # 死亡标记
         self._will_package: dict[str, float] | None = None  # 遗嘱记忆包
+
+        # 插件钩子系统 (外部模块注册用)
+        self._hooks: dict[str, list[callable]] = {
+            "pre_contract": [],
+            "post_contract": [],
+            "pre_diffuse": [],
+            "post_diffuse": [],
+            "pre_suspend": [],
+            "finalize_situation": [],
+            "on_trauma": [],
+            "on_decision": [],
+        }
 
         if self.verbose:
             print(f"[{self.id}] 🌱 迷你宝宝出生")
@@ -342,12 +375,21 @@ class MiniInfant:
 
     @property
     def status(self) -> str:
-        """当前状态: 'alive' | 'dead' | 'suspended'。"""
-        if self._is_dead:
-            return "dead"
-        if hasattr(self.hic, 'breath_state') and self.hic.breath_state == BreathState.SUSPEND:
-            return "suspended"
-        return "alive"
+        """当前宝宝状态摘要。包含心跳、置信度、能量、路径数。"""
+        return (
+            f"{'💀' if self._is_dead else '❤️'} "
+            f"cycle={self._cycle_count} "
+            f"q={self.position:.3f} p={self.momentum:.3f} "
+            f"E={self.hic.energy:.1f} "
+            f"conf={self.confidence:.2f} "
+            f"surp={self.surprise:.4f} "
+            f"paths={len(self.memory.path_strength)}"
+        )
+
+    @property
+    def infant_id(self) -> str:
+        """宝宝唯一标识符。"""
+        return self.id
 
     # ── 态势构建 ─────────────────────────────────────────────────────
 
@@ -440,6 +482,60 @@ class MiniInfant:
 
     # ── 蜜蜂心跳 ─────────────────────────────────────────────────────
 
+    def register_hook(self, event: str, fn: callable) -> None:
+        """
+        注册生命周期钩子。
+
+        可用事件:
+          pre_contract / post_contract — 收缩期前后
+          pre_diffuse / post_diffuse   — 扩散期前后
+          pre_suspend                  — 悬置期前
+          on_trauma(self, path)        — 创伤事件触发
+          on_decision(self, path, confidence, success) — 决策记录
+          finalize_situation(self, situation) — 态势构建后回调
+
+        Args:
+            event: 事件名，必须是 _hooks 字典中的合法键
+            fn: 钩子函数，签名取决于事件类型（见上）
+        """
+        if event in self._hooks:
+            self._hooks[event].append(fn)
+
+    def _run_hooks(self, event: str, **kwargs) -> None:
+        """运行指定事件的所有钩子。"""
+        for fn in self._hooks.get(event, []):
+            try:
+                fn(self, **kwargs)
+            except Exception as e:
+                logger.warning("[%s] 钩子 %s 失败: %s", self.id, event, e)
+
+    # ── 认知覆盖 ───────────────────────────────────────────────────
+
+    def _apply_cognitive_override(self, current_breath: BreathState) -> BreathState:
+        """
+        检查呼吸总线中是否有认知事件，若有则覆盖呼吸状态。
+
+        回路一的核心：小波发现异常 → SNN 发放率飙升 → BreathEvent 入队 →
+        此处优先处理更紧急的呼吸状态。
+
+        Urgency: SUSPEND(3) > CONTRACT(2) > DIFFUSE(1)
+        仅当认知事件的紧迫度高于当前状态时才覆盖。
+        """
+        if self._breath_bus is None or not self._breath_bus.has_pending_events():
+            return current_breath
+
+        suggested = self._breath_bus.suggest_state(self.hic)
+        urgency = {
+            BreathState.SUSPEND: 3,
+            BreathState.CONTRACT: 2,
+            BreathState.DIFFUSE: 1,
+        }
+        if urgency.get(suggested, 0) > urgency.get(current_breath, 0):
+            if self.verbose:
+                print(f"[{self.id}] 🧠 认知覆盖: {current_breath.value} → {suggested.value}")
+            return suggested
+        return current_breath
+
     def bee_heartbeat(self) -> None:
         """
         一次完整的呼吸循环。
@@ -449,18 +545,38 @@ class MiniInfant:
         DIFFUSE  → 内省、遗忘、恢复能量
         SUSPEND  → 强制休息、保护存续
         """
+        _start = __import__("time").monotonic()
+
         # work_done: True if we completed a full contract cycle
         breath = self.hic.update_breath(self.confidence, work_done=(self._cycle_count > 0))
 
+        # 回路一：认知覆盖 — SNN 驱动的事件可提升呼吸紧迫度
+        breath = self._apply_cognitive_override(breath)
+
         if breath == BreathState.SUSPEND:
+            self._run_hooks("pre_suspend")
             self._suspend_phase()
         elif breath == BreathState.CONTRACT:
+            self._run_hooks("pre_contract")
             self._contract_phase()
+            self._run_hooks("post_contract")
         elif breath == BreathState.DIFFUSE:
+            self._run_hooks("pre_diffuse")
             self._diffuse_phase()
+            self._run_hooks("post_diffuse")
 
         # 更新态势
         self.situation = self._build_situation()
+        self._run_hooks("finalize_situation", situation=self.situation)
+
+        # 可观测性：记录呼吸周期耗时和核心指标
+        try:
+            from cosmic_mycelium.utils.metrics import MetricsCollector
+            _elapsed = __import__("time").monotonic() - _start
+            MetricsCollector.record_breath_cycle_duration(self.id, breath.name, _elapsed)
+            MetricsCollector.collect_mini_metrics(self.id, self)
+        except Exception:
+            pass
 
     # ── 三阶段实现 ───────────────────────────────────────────────────
 
@@ -517,6 +633,8 @@ class MiniInfant:
                 print(f"[{self.id}] ⚠️ 创伤标记: {trauma_path[:48]}...")
             # 接线一：创伤 → 分形回声
             self._publish_trauma_to_fractal()
+            # 插件钩子: 免疫+追踪模块响应创伤
+            self._run_hooks("on_trauma", path=trauma_path)
 
         # 5. 自我修正：如果物理模型偏离现实，调整
         if self.surprise > 0.001:
@@ -542,12 +660,21 @@ class MiniInfant:
             self.memory.reinforce(path_key, success=True, saliency=self.confidence)
             self.hic.modify_energy(-1.0)
             self._total_energy_consumed += 1.0
+            self._run_hooks("on_decision", path=path_key, confidence=self.confidence, success=True)
             if self.verbose and self._cycle_count % 10 == 0:
                 print(f"[{self.id}] 🐝 路径: {path_key} (置信度: {self.confidence:.2f})")
         else:
             self.memory.reinforce("explore_failed", success=False, saliency=0.5)
             if self.verbose and self._cycle_count % 10 == 0:
                 print(f"[{self.id}] ❓ 探索未收敛 (conf={self.confidence:.2f})")
+
+        # 持续学习: 追踪本周期使用的路径
+        tracked_paths = list(self.memory.path_strength.keys())
+        if tracked_paths:
+            self._continual_learner.observe(
+                tracked_paths,
+                [True if best is not None else False] * len(tracked_paths),
+            )
 
         # 8. 物理状态演化
         self.position, self.momentum = self.physics.step(
@@ -562,6 +689,9 @@ class MiniInfant:
 
     def _diffuse_phase(self) -> None:
         """弥散阶段：低功耗内省，记忆巩固，群体智慧感知。"""
+        # 持续学习保护：在遗忘前保护重要路径
+        self._continual_learner.protect_before_forget()
+
         # 遗忘：清理长期不用的路径
         self.memory.forget(dt_seconds=self.hic.config.diffuse_duration)
 
@@ -581,8 +711,8 @@ class MiniInfant:
                     },
                     source_id=self.id,
                 )
-            except Exception:
-                pass
+            except (RuntimeError, ConnectionError) as e:
+                logger.warning("[%s] 发布态势到 MESH 失败: %s", self.id, e)
 
             # 查询集体创伤记忆
             wisdom = self._query_collective_wisdom()
@@ -598,8 +728,8 @@ class MiniInfant:
                 if collective.get("collective_tension", 0) < 0.1:
                     # 群体整体放松 → 微幅提升信心
                     self.confidence = min(0.9, self.confidence + 0.005)
-            except Exception:
-                pass
+            except (RuntimeError, ConnectionError) as e:
+                logger.warning("[%s] 查询集体态势失败: %s", self.id, e)
 
         # 恢复能量
         self.hic.modify_energy(self.hic.config.recovery_rate)
@@ -866,6 +996,11 @@ class MiniInfant:
     @property
     def energy(self) -> float:
         return self.hic.energy
+
+    @property
+    def continual_learner(self):
+        """持续学习引擎（外部访问用）。"""
+        return self._continual_learner
 
     def __repr__(self) -> str:
         return (

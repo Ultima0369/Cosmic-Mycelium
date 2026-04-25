@@ -144,8 +144,9 @@ class TestInfantLifecycle:
         infant = SiliconInfant("test-infant")
         infant.run(max_cycles=5)
 
-        # Some packets should be generated (not all are SUSPEND)
-        assert len(infant.outbox) >= 0  # May be zero if all SUSPEND, but no crash
+        # Verify infant completed cycles and generated expected outputs
+        assert infant._cycle_count == 5
+        assert isinstance(infant.outbox, list)
 
     def test_infant_does_not_crash_over_many_cycles(self):
         """Infant can run many cycles without crashing."""

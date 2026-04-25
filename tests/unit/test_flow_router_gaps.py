@@ -103,8 +103,8 @@ class TestBroadcastTTL:
             # update packet timestamp to get new packet_id
             packet.timestamp += 1.0
 
-        # cleanup should have run at least once (no exception)
-        assert True  # if we got here without error, test passes
+        # cleanup should have run at least once
+        assert len(delivered) > 0, "No packets delivered via broadcast"
 
 
 class TestRemoveNeighbor:

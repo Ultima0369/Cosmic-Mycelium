@@ -34,8 +34,6 @@ CORE_MODULES = [
     "cosmic_mycelium.cluster.node_manager",
     "cosmic_mycelium.cluster.flow_router",
     "cosmic_mycelium.cluster.consensus",
-    "cosmic_mycelium.global",
-    "cosmic_mycelium.global.access_protocol",
     "cosmic_mycelium.scripts.run_infant",
     "cosmic_mycelium.scripts.run_cluster",
 ]

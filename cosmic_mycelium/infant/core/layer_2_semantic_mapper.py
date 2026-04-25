@@ -21,8 +21,8 @@ from cosmic_mycelium.common.physical_fingerprint import PhysicalFingerprint
 
 if TYPE_CHECKING:
     from cosmic_mycelium.common.config_manager import ConfigManager
-    # GlobalConceptRegistry lives in global.access_protocol — avoid static import
-    # because 'global' is a Python keyword. Use string annotation instead.
+    # GlobalConceptRegistry — reserved for SWARM-scale alignment.
+    # Not yet integrated; SemanticMapper works standalone.
     GlobalConceptRegistry = None  # type: ignore[name-defined]
 
 
@@ -270,8 +270,8 @@ class SemanticMapper:
                     link = f"{rid}:{modality}"
                     if link not in concept.cross_modal_links:
                         concept.cross_modal_links.append(link)
-        except Exception:
-            pass
+        except (TypeError, AttributeError, ValueError) as e:
+            logger.warning("SemanticMapper: cross-modal linking failed: %s", e)
 
     def get_potential_gradient(
         self,

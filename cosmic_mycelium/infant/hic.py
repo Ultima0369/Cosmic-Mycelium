@@ -30,7 +30,7 @@ class SuspendedError(RuntimeError):
     pass
 
 
-@dataclass
+@dataclass(slots=True)
 class HICConfig:
     """Configuration for the HIC core — the life parameters."""
 

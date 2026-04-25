@@ -114,7 +114,8 @@ class SkillLoader:
             try:
                 module = importlib.import_module(module_name)
                 self._register_from_module(module)
-            except Exception:
+            except (ImportError, ModuleNotFoundError, SyntaxError) as e:
+                logger.debug("Skipping module %s: %s", module_name, e)
                 continue
 
         # 递归扫描子包
@@ -142,7 +143,8 @@ class SkillLoader:
                 # 避免重复注册
                 if self.registry.get(instance.name) is None:
                     self.registry.register(instance)
-            except Exception:
+            except (TypeError, AttributeError) as e:
+                logger.debug("Skipping class %s: %s", name, e)
                 continue
 
     # -------------------------------------------------------------------------

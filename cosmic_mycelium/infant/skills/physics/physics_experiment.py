@@ -181,8 +181,8 @@ class PhysicsExperimentSkill(InfantSkill):
         if caution and self.hic is not None:
             try:
                 self.hic.adjust_caution(True)
-            except Exception:
-                pass  # HIC may not have adjust_caution
+            except (AttributeError, RuntimeError) as e:
+                logger.debug("PhysicsExperiment: HIC adjust_caution failed: %s", e)
 
         # Cache result
         self._verdict_cache[cache_key] = result
@@ -254,7 +254,8 @@ class PhysicsExperimentSkill(InfantSkill):
             from cosmic_mycelium.infant.engines.engine_theia import THEIAEngine
             self._engine = THEIAEngine(model_path)
             return True
-        except Exception:
+        except (ImportError, OSError, RuntimeError) as e:
+            logger.debug("PhysicsExperiment: THEIAEngine init failed: %s", e)
             self._engine = None
             return False
 

@@ -317,7 +317,7 @@ class PhysicsBenchmark:
             if hasattr(val, "item") and callable(val.item):
                 try:
                     return val.item()
-                except Exception:
+                except (ValueError, AttributeError, OverflowError):
                     pass
             if isinstance(val, dict):
                 return {k: _to_native(v) for k, v in val.items()}
